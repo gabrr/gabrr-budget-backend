@@ -112,12 +112,15 @@ async def update_transaction(
     payload: Transaction,
     session: Session = Depends(get_session),
 ) -> Transaction:
-    stored_transaction_schema = _transaction_repository.update(
-        session,
-        user_id=settings.default_user_id,
-        transaction_id=transaction_id,
-        payload=payload,
-    )
+    try:
+        stored_transaction_schema = _transaction_repository.update(
+            session,
+            user_id=settings.default_user_id,
+            transaction_id=transaction_id,
+            payload=payload,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
     if stored_transaction_schema is None:
         raise HTTPException(status_code=404, detail="Transaction not found")
 

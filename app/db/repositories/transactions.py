@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, contains_eager, joinedload
@@ -10,6 +10,25 @@ from app.db.models.categories import ExpenseCategory
 from app.db.models.transaction import Transaction
 from app.db.schemas.categories import CategorySchema
 from app.db.schemas.transactions import TransactionSchema
+
+USER_CORRECTED_REASON = "User corrected classification."
+USER_CONFIDENCE = Decimal("1.0000")
+
+REPORT_BUCKETS = {
+    "income",
+    "debt_installment",
+    "fixed_cost",
+    "living_cost",
+    "excluded",
+    "unknown",
+}
+TRANSACTION_NATURES = {"income", "expense", "transfer", "refund", "card_payment", "unknown"}
+PROTECTED_PATCH_FIELDS = {
+    "classification_source",
+    "statement_kind",
+    "import_job_id",
+    "running_balance",
+}
 
 
 def transaction_schema_to_model(
@@ -290,12 +309,17 @@ class TransactionRepository:
         elif "date" in patch_fields and "posted_at" in patch_fields:
             patch_fields.pop("date", None)
 
+        patch_fields = _prepare_transaction_patch(
+            session,
+            user_id=user_id,
+            patch_fields=patch_fields,
+        )
+
         field_map = {
             "user_id": "user_id",
             "account_id": "account_id",
             "category_id": "category_id",
             "source_import_id": "source_import_id",
-            "import_job_id": "import_job_id",
             "posted_at": "posted_at",
             "description": "description",
             "merchant_name": "merchant_name",
@@ -304,7 +328,6 @@ class TransactionRepository:
             "installments_current": "installments_current",
             "reverted_at": "reverted_at",
             "is_draft": "is_draft",
-            "statement_kind": "statement_kind",
             "transaction_nature": "transaction_nature",
             "report_bucket": "report_bucket",
             "classification_source": "classification_source",
@@ -378,3 +401,113 @@ class TransactionRepository:
         )
 
         return int(result.rowcount or 0)
+
+
+def _prepare_transaction_patch(
+    session: Session,
+    *,
+    user_id: str,
+    patch_fields: dict,
+) -> dict:
+    forbidden = PROTECTED_PATCH_FIELDS & set(patch_fields)
+    if forbidden:
+        field_list = ", ".join(sorted(forbidden))
+        raise ValueError(f"Cannot update protected fields: {field_list}")
+
+    classification_changed = "report_bucket" in patch_fields or "transaction_nature" in patch_fields
+
+    if "report_bucket" in patch_fields:
+        patch_fields["report_bucket"] = _validate_enum(
+            "report_bucket",
+            patch_fields["report_bucket"],
+            REPORT_BUCKETS,
+        )
+
+    if "transaction_nature" in patch_fields:
+        patch_fields["transaction_nature"] = _validate_enum(
+            "transaction_nature",
+            patch_fields["transaction_nature"],
+            TRANSACTION_NATURES,
+        )
+
+    if "classification_confidence" in patch_fields:
+        patch_fields["classification_confidence"] = _validate_confidence(
+            patch_fields["classification_confidence"]
+        )
+
+    if "classification_reason" in patch_fields:
+        patch_fields["classification_reason"] = _validate_reason(
+            patch_fields["classification_reason"]
+        )
+
+    if "is_draft" in patch_fields and not isinstance(patch_fields["is_draft"], bool):
+        raise ValueError("is_draft must be a boolean")
+
+    if "category_id" in patch_fields:
+        _validate_category_id(
+            session,
+            user_id=user_id,
+            category_id=patch_fields["category_id"],
+        )
+
+    if classification_changed:
+        patch_fields["classification_source"] = "user"
+        patch_fields.setdefault("classification_confidence", USER_CONFIDENCE)
+        patch_fields.setdefault("classification_reason", USER_CORRECTED_REASON)
+
+    return patch_fields
+
+
+def _validate_enum(field_name: str, value: object, allowed_values: set[str]) -> str:
+    if value is None:
+        raise ValueError(f"{field_name} is required")
+
+    normalized = str(value).strip()
+    if normalized not in allowed_values:
+        allowed = ", ".join(sorted(allowed_values))
+        raise ValueError(f"Invalid {field_name}: {normalized!r} is not one of {allowed}")
+
+    return normalized
+
+
+def _validate_confidence(value: object) -> Decimal | None:
+    if value is None:
+        return None
+
+    try:
+        confidence = Decimal(str(value))
+    except (InvalidOperation, ValueError) as error:
+        raise ValueError("classification_confidence must be a decimal") from error
+    if confidence < Decimal("0") or confidence > Decimal("1"):
+        raise ValueError("classification_confidence must be between 0 and 1")
+
+    return confidence
+
+
+def _validate_reason(value: object) -> str | None:
+    if value is None:
+        return None
+
+    reason = str(value).strip()
+    if not reason:
+        raise ValueError("classification_reason cannot be blank")
+    if len(reason) > 1000:
+        raise ValueError("classification_reason cannot be longer than 1000 characters")
+
+    return reason
+
+
+def _validate_category_id(
+    session: Session,
+    *,
+    user_id: str,
+    category_id: str | None,
+) -> None:
+    if category_id is None:
+        return
+
+    category = session.get(CategorySchema, category_id)
+    if category is None:
+        raise ValueError("category_id does not exist")
+    if category.user_id not in {None, user_id} and not category.is_system:
+        raise ValueError("category_id is not available to this user")

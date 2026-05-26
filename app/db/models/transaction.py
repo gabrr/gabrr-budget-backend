@@ -4,7 +4,7 @@ from datetime import date as DateValue
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import Field, field_validator
+from pydantic import Field, StrictBool, field_validator
 
 from app.db.models.base import TimestampModel
 from app.db.models.categories import ExpenseCategory
@@ -32,7 +32,7 @@ class Transaction(TimestampModel):
     comment: str | None = None
     tags: list[str] | None = None
     reverted_at: datetime | None = None
-    is_draft: bool = False
+    is_draft: StrictBool = False
     statement_kind: str = "unknown"
     transaction_nature: str = "unknown"
     report_bucket: str = "unknown"
