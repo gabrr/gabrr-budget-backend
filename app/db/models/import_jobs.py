@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
 
 from app.db.models.base import DbModel, TimestampModel
 
@@ -19,6 +20,14 @@ class ImportJob(TimestampModel):
     idempotency_key: str | None = None
     agent_input_payload_json: dict | None = None
     agent_output_payload_json: dict | None = None
+    statement_kind: str = "unknown"
+    statement_kind_confidence: Decimal | None = None
+    statement_kind_reason: str | None = None
+    statement_period_start: date | None = None
+    statement_period_end: date | None = None
+    institution_name: str | None = None
+    account_hint: str | None = None
+    statement_kind_source: str = "system"
     attempts: int = 0
     locked_by: str | None = None
     locked_at: datetime | None = None

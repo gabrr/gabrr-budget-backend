@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, contains_eager, joinedload
 
 from app.db.models.categories import ExpenseCategory
@@ -35,6 +35,7 @@ def transaction_schema_to_model(
         category_id=stored_transaction_schema.category_id,
         category=category_enum,
         source_import_id=stored_transaction_schema.source_import_id,
+        import_job_id=stored_transaction_schema.import_job_id,
         posted_at=stored_transaction_schema.posted_at,
         date=stored_transaction_schema.posted_at,
         description=stored_transaction_schema.description,
@@ -46,6 +47,13 @@ def transaction_schema_to_model(
         installments_current=stored_transaction_schema.installments_current,
         reverted_at=stored_transaction_schema.reverted_at,
         is_draft=stored_transaction_schema.is_draft,
+        statement_kind=stored_transaction_schema.statement_kind,
+        transaction_nature=stored_transaction_schema.transaction_nature,
+        report_bucket=stored_transaction_schema.report_bucket,
+        classification_source=stored_transaction_schema.classification_source,
+        classification_confidence=stored_transaction_schema.classification_confidence,
+        classification_reason=stored_transaction_schema.classification_reason,
+        running_balance=stored_transaction_schema.running_balance,
         created_at=stored_transaction_schema.created_at,
         updated_at=stored_transaction_schema.updated_at,
     )
@@ -210,6 +218,7 @@ class TransactionRepository:
             account_id=account_id,
             category_id=payload.category_id,
             source_import_id=payload.source_import_id,
+            import_job_id=payload.import_job_id,
             posted_at=posted_at,
             description=payload.description.strip(),
             merchant_name=payload.merchant_name,
@@ -220,6 +229,19 @@ class TransactionRepository:
             installments_current=payload.installments_current,
             reverted_at=payload.reverted_at,
             is_draft=bool(payload.is_draft),
+            statement_kind=payload.statement_kind,
+            transaction_nature=payload.transaction_nature,
+            report_bucket=payload.report_bucket,
+            classification_source=payload.classification_source,
+            classification_confidence=(
+                Decimal(str(payload.classification_confidence))
+                if payload.classification_confidence is not None
+                else None
+            ),
+            classification_reason=payload.classification_reason,
+            running_balance=(
+                Decimal(str(payload.running_balance)) if payload.running_balance is not None else None
+            ),
         )
         session.add(new_transaction_schema)
         session.flush()
@@ -273,6 +295,7 @@ class TransactionRepository:
             "account_id": "account_id",
             "category_id": "category_id",
             "source_import_id": "source_import_id",
+            "import_job_id": "import_job_id",
             "posted_at": "posted_at",
             "description": "description",
             "merchant_name": "merchant_name",
@@ -281,6 +304,11 @@ class TransactionRepository:
             "installments_current": "installments_current",
             "reverted_at": "reverted_at",
             "is_draft": "is_draft",
+            "statement_kind": "statement_kind",
+            "transaction_nature": "transaction_nature",
+            "report_bucket": "report_bucket",
+            "classification_source": "classification_source",
+            "classification_reason": "classification_reason",
         }
         for pydantic_key, orm_key in field_map.items():
             if pydantic_key in patch_fields:
@@ -291,6 +319,16 @@ class TransactionRepository:
             stored_transaction_schema.currency = str(patch_fields["currency"]).upper()[:3]
         if "description" in patch_fields and patch_fields["description"] is not None:
             stored_transaction_schema.description = str(patch_fields["description"]).strip()
+        if "classification_confidence" in patch_fields:
+            confidence = patch_fields["classification_confidence"]
+            stored_transaction_schema.classification_confidence = (
+                Decimal(str(confidence)) if confidence is not None else None
+            )
+        if "running_balance" in patch_fields:
+            running_balance = patch_fields["running_balance"]
+            stored_transaction_schema.running_balance = (
+                Decimal(str(running_balance)) if running_balance is not None else None
+            )
 
         session.flush()
         session.refresh(stored_transaction_schema, ["category"])
@@ -312,3 +350,31 @@ class TransactionRepository:
         session.delete(stored_transaction_schema)
 
         return True
+
+    def has_committed_for_import_job(
+        self,
+        session: Session,
+        *,
+        import_job_id: str,
+    ) -> bool:
+        statement = select(TransactionSchema.id).where(
+            TransactionSchema.import_job_id == import_job_id,
+            TransactionSchema.is_draft.is_(False),
+        )
+
+        return session.scalars(statement.limit(1)).first() is not None
+
+    def delete_drafts_for_import_job(
+        self,
+        session: Session,
+        *,
+        import_job_id: str,
+    ) -> int:
+        result = session.execute(
+            delete(TransactionSchema).where(
+                TransactionSchema.import_job_id == import_job_id,
+                TransactionSchema.is_draft.is_(True),
+            )
+        )
+
+        return int(result.rowcount or 0)

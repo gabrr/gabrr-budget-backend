@@ -5,99 +5,19 @@ import asyncio
 import logging
 import socket
 import uuid
-from datetime import date, datetime
-from decimal import Decimal, InvalidOperation
-from typing import Any
 
 from app.agents.factory import create_agent_gateway
 from app.agents.models import AgentProgressEvent
 from app.config import settings
-from app.db.models.transaction import Transaction
 from app.db.repositories.import_jobs import ImportJobRepository
 from app.db.repositories.transactions import TransactionRepository
 from app.db.session import SessionLocal
+from app.workers.import_worker.data_mapping import parse_agent_result_for_persistence
+from app.workers.import_worker.data_persistence import save_parsed_import_result
 
 _import_job_repository = ImportJobRepository()
 _transaction_repository = TransactionRepository()
 logger = logging.getLogger(__name__)
-
-
-def map_agent_result_to_transactions(agent_result: dict[str, Any]) -> list[Transaction]:
-    rows = agent_result.get("transactions")
-    if not isinstance(rows, list):
-        raise ValueError("Agent result must include a transactions list.")
-
-    transactions: list[Transaction] = []
-    for index, row in enumerate(rows):
-        if not isinstance(row, dict):
-            raise ValueError(f"Invalid transaction at index {index}: row must be an object")
-
-        missing = {"date", "description", "amount"} - set(row)
-        if missing:
-            missing_fields = ", ".join(sorted(missing))
-            raise ValueError(f"Invalid transaction at index {index}: missing {missing_fields}")
-
-        posted_at = _parse_date(row["date"], index=index)
-
-        try:
-            amount = Decimal(str(row["amount"]))
-        except (InvalidOperation, ValueError) as error:
-            raise ValueError(f"Invalid transaction at index {index}: invalid amount") from error
-
-        description = str(row["description"]).strip()
-        if not description:
-            raise ValueError(f"Invalid transaction at index {index}: description is required")
-
-        transactions.append(
-            Transaction(
-                posted_at=posted_at,
-                date=posted_at,
-                description=description,
-                merchant_name=_optional_string(row.get("merchant_name")),
-                amount=amount,
-                currency="BRL",
-                payment_method=_optional_string(row.get("payment_method")),
-                installments=_optional_int(row.get("installments")),
-                installments_current=_optional_int(row.get("installments_current")),
-                is_draft=True,
-            )
-        )
-
-    return transactions
-
-
-def _optional_string(value: object) -> str | None:
-    if value is None:
-        return None
-    stripped = str(value).strip()
-    return stripped or None
-
-
-def _optional_int(value: object) -> int | None:
-    if value is None or value == "":
-        return None
-    return int(value)
-
-
-def _parse_date(value: object, *, index: int) -> date:
-    raw_value = str(value).strip()
-    if not raw_value:
-        raise ValueError(f"Invalid transaction at index {index}: date is required")
-
-    for date_format in ("%Y-%m-%d", "%Y/%m/%d", "%d/%m/%Y", "%d-%m-%Y", "%d/%m/%y", "%d-%m-%y"):
-        try:
-            return datetime.strptime(raw_value, date_format).date()
-        except ValueError:
-            pass
-
-    for date_format in ("%d/%m", "%d-%m"):
-        try:
-            parsed = datetime.strptime(raw_value, date_format)
-            return date(date.today().year, parsed.month, parsed.day)
-        except ValueError:
-            pass
-
-    raise ValueError(f"Invalid transaction at index {index}: invalid date")
 
 
 async def process_job(job_id: str) -> None:
@@ -177,20 +97,22 @@ async def process_job(job_id: str) -> None:
             )
             session.commit()
 
+        statement_metadata, transactions = parse_agent_result_for_persistence(
+            agent_data,
+            import_job_id=job_id,
+        )
+
         with SessionLocal() as session:
-            transactions = map_agent_result_to_transactions(agent_data)
-            _transaction_repository.create_many(
+            save_parsed_import_result(
                 session,
-                transactions,
-                default_user_id=user_id,
+                job_id=job_id,
+                user_id=user_id,
                 default_account_id=settings.default_account_id,
+                statement_metadata=statement_metadata,
+                transactions=transactions,
+                import_job_repository=_import_job_repository,
+                transaction_repository=_transaction_repository,
             )
-            _import_job_repository.mark_step(
-                session,
-                job_id,
-                current_step="Draft transactions saved",
-            )
-            _import_job_repository.mark_done(session, job_id)
             session.commit()
     except Exception as error:
         with SessionLocal() as session:
@@ -227,7 +149,3 @@ def main() -> None:
     args = parser.parse_args()
 
     asyncio.run(run_worker(args.worker_id, once=args.once))
-
-
-if __name__ == "__main__":
-    main()

@@ -17,6 +17,7 @@ class Transaction(TimestampModel):
     category_id: str | None = None
     category: ExpenseCategory | None = None
     source_import_id: str | None = None
+    import_job_id: str | None = None
     posted_at: DateValue | None = None
     date: DateValue | None = None
     description: str | None = Field(default=None, min_length=1)
@@ -32,10 +33,17 @@ class Transaction(TimestampModel):
     tags: list[str] | None = None
     reverted_at: datetime | None = None
     is_draft: bool = False
+    statement_kind: str = "unknown"
+    transaction_nature: str = "unknown"
+    report_bucket: str = "unknown"
+    classification_source: str = "system"
+    classification_confidence: Decimal | None = None
+    classification_reason: str | None = None
+    running_balance: Decimal | None = None
 
-    @field_validator("amount", mode="before")
+    @field_validator("amount", "classification_confidence", "running_balance", mode="before")
     @classmethod
-    def _amount_as_decimal(cls, value: object) -> Decimal | None:
+    def _decimal_fields(cls, value: object) -> Decimal | None:
         if value is None or isinstance(value, bool):
             return None
         if isinstance(value, Decimal):

@@ -160,6 +160,33 @@ class ImportJobRepository:
             .values(agent_output_payload_json=output_payload_json)
         )
 
+    def save_statement_metadata(
+        self,
+        session: Session,
+        job_id: str,
+        *,
+        metadata: dict,
+    ) -> None:
+        allowed_fields = {
+            "statement_kind",
+            "statement_kind_confidence",
+            "statement_kind_reason",
+            "statement_period_start",
+            "statement_period_end",
+            "institution_name",
+            "account_hint",
+            "statement_kind_source",
+        }
+        values = {key: metadata[key] for key in allowed_fields if key in metadata}
+        if not values:
+            return
+
+        session.execute(
+            update(ImportJobSchema)
+            .where(ImportJobSchema.id == job_id)
+            .values(**values)
+        )
+
     def mark_done(self, session: Session, job_id: str) -> None:
         now = datetime.now(UTC)
         session.execute(
