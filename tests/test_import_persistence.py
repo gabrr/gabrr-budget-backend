@@ -14,7 +14,10 @@ from app.db.repositories.transactions import (
 )
 from app.db.schemas import Base
 from app.db.schemas.import_jobs import ImportJobSchema
-from app.workers.import_worker.data_mapping import parse_agent_result_for_persistence
+from app.workers.import_worker.data_mapping import (
+    normalize_imported_amount,
+    parse_agent_result_for_persistence,
+)
 
 
 def _valid_agent_result() -> dict:
@@ -32,7 +35,7 @@ def _valid_agent_result() -> dict:
             {
                 "date": "2026-05-10",
                 "description": "Grocery Store",
-                "amount": "-120.45",
+                "amount": "120.45",
                 "currency": "brl",
                 "payment_method": "credit_card",
                 "merchant_name": "Grocery Store",
@@ -68,6 +71,7 @@ def test_parse_agent_result_maps_statement_and_transaction_metadata() -> None:
     transaction = transactions[0]
     assert transaction.import_job_id == "job_123"
     assert transaction.statement_kind == "credit_card"
+    assert transaction.amount == Decimal("-120.45")
     assert transaction.transaction_nature == "expense"
     assert transaction.report_bucket == "living_cost"
     assert transaction.classification_source == "agent"
@@ -76,6 +80,15 @@ def test_parse_agent_result_maps_statement_and_transaction_metadata() -> None:
     assert transaction.running_balance == Decimal("500.55")
     assert transaction.currency == "BRL"
     assert transaction.is_draft is True
+
+
+def test_normalize_imported_amount_flips_credit_card_sign_only() -> None:
+    assert normalize_imported_amount(Decimal("39.99"), "credit_card") == Decimal("-39.99")
+    assert normalize_imported_amount(Decimal("-39.99"), "credit_card") == Decimal("39.99")
+    assert normalize_imported_amount(Decimal("0.00"), "credit_card") == Decimal("0.00")
+    assert normalize_imported_amount(Decimal("-75.00"), "instant_payment") == Decimal("-75.00")
+    assert normalize_imported_amount(Decimal("5002.56"), "bank_transfer") == Decimal("5002.56")
+    assert normalize_imported_amount(Decimal("12.34"), None) == Decimal("12.34")
 
 
 def test_parse_agent_result_rejects_missing_statement() -> None:

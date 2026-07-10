@@ -41,6 +41,9 @@ class ImportJobPublic(DbModel):
     status: str
     current_step: str | None = None
     error_message: str | None = None
+    original_filename: str | None = None
+    statement_kind: str = "unknown"
+    statement_kind_confidence: Decimal | None = None
     status_url: str
     events_url: str
     created_at: str

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select, update
+from sqlalchemy import case, select, update
 from sqlalchemy.orm import Session
 
 from app.db.schemas.import_jobs import ImportJobSchema
@@ -37,6 +37,41 @@ class ImportJobRepository:
         )
 
         return session.scalars(statement).first()
+
+    def get_latest_active(
+        self,
+        session: Session,
+        *,
+        user_id: str,
+    ) -> ImportJobSchema | None:
+        return session.scalars(
+            select(ImportJobSchema)
+            .where(
+                ImportJobSchema.user_id == user_id,
+                ImportJobSchema.status.in_(["pending", "processing"]),
+            )
+            .order_by(
+                case((ImportJobSchema.status == "processing", 0), else_=1),
+                ImportJobSchema.created_at.asc(),
+            )
+            .limit(1)
+        ).first()
+
+    def list_recent(
+        self,
+        session: Session,
+        *,
+        user_id: str,
+        limit: int = 20,
+    ) -> list[ImportJobSchema]:
+        return list(
+            session.scalars(
+                select(ImportJobSchema)
+                .where(ImportJobSchema.user_id == user_id)
+                .order_by(ImportJobSchema.created_at.desc())
+                .limit(limit)
+            ).all()
+        )
 
     def create_pending(
         self,

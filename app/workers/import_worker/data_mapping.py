@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Any
 
 from app.db.models.transaction import Transaction
@@ -19,6 +20,13 @@ from app.workers.import_worker.helpers import (
 STATEMENT_KINDS = {"checking_account", "credit_card", "unknown"}
 TRANSACTION_NATURES = {"income", "expense", "transfer", "refund", "card_payment", "unknown"}
 REPORT_BUCKETS = {"income", "debt_installment", "fixed_cost", "living_cost", "excluded", "unknown"}
+
+
+def normalize_imported_amount(amount: Decimal, payment_method: str | None) -> Decimal:
+    if payment_method == "credit_card":
+        return -amount
+
+    return amount
 
 
 def parse_agent_result_for_persistence(
@@ -110,7 +118,15 @@ def map_agent_result_to_transactions(
 
         path_prefix = f"transactions[{index}]"
         posted_at = _required_date(row["date"], path=f"{path_prefix}.date")
-        amount = _required_decimal(row["amount"], path=f"{path_prefix}.amount")
+        payment_method = _optional_string(
+            row.get("payment_method"),
+            path=f"{path_prefix}.payment_method",
+            max_length=40,
+        )
+        amount = normalize_imported_amount(
+            _required_decimal(row["amount"], path=f"{path_prefix}.amount"),
+            payment_method,
+        )
         description = _required_string(
             row["description"],
             path=f"{path_prefix}.description",
@@ -130,11 +146,7 @@ def map_agent_result_to_transactions(
                 ),
                 amount=amount,
                 currency=_normalize_currency(row.get("currency"), path=f"{path_prefix}.currency"),
-                payment_method=_optional_string(
-                    row.get("payment_method"),
-                    path=f"{path_prefix}.payment_method",
-                    max_length=40,
-                ),
+                payment_method=payment_method,
                 installments=_optional_int(row.get("installments")),
                 installments_current=_optional_int(row.get("installments_current")),
                 is_draft=True,

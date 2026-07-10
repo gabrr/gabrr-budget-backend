@@ -24,3 +24,9 @@ class UserSchema(TimestampMixin, Base):
     learned_rules = relationship("LearnedRuleSchema", back_populates="user")
     transactions = relationship("TransactionSchema", back_populates="user")
     uploaded_files = relationship("UploadedFileSchema", back_populates="user")
+    wealth_checkpoints = relationship("WealthCheckpointSchema", back_populates="user")
+    wealth_projection_settings = relationship(
+        "WealthProjectionSettingsSchema",
+        back_populates="user",
+        uselist=False,
+    )

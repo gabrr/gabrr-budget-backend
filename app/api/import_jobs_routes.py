@@ -4,7 +4,7 @@ import asyncio
 import json
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 
 from app.config import settings
@@ -27,6 +27,9 @@ def import_job_to_public(job: ImportJobSchema) -> ImportJobPublic:
         status=job.status,
         current_step=job.current_step,
         error_message=job.error_message,
+        original_filename=job.original_filename,
+        statement_kind=job.statement_kind or "unknown",
+        statement_kind_confidence=job.statement_kind_confidence,
         status_url=f"/import-jobs/{job.id}",
         events_url=f"/import-jobs/{job.id}/events",
         created_at=job.created_at.isoformat(),
@@ -38,6 +41,32 @@ def import_job_to_public(job: ImportJobSchema) -> ImportJobPublic:
 
 def _isoformat_or_none(value: datetime | None) -> str | None:
     return value.isoformat() if value is not None else None
+
+
+@import_jobs_router.get("", response_model=list[ImportJobPublic])
+async def list_import_jobs(limit: int = 20) -> list[ImportJobPublic]:
+    bounded_limit = min(max(limit, 1), 50)
+    with SessionLocal() as session:
+        jobs = _import_job_repository.list_recent(
+            session,
+            user_id=settings.default_user_id,
+            limit=bounded_limit,
+        )
+
+        return [import_job_to_public(job) for job in jobs]
+
+
+@import_jobs_router.get("/active", response_model=ImportJobPublic | None)
+async def get_active_import_job() -> Response | ImportJobPublic:
+    with SessionLocal() as session:
+        job = _import_job_repository.get_latest_active(
+            session,
+            user_id=settings.default_user_id,
+        )
+        if job is None:
+            return Response(status_code=204)
+
+        return import_job_to_public(job)
 
 
 @import_jobs_router.get("/{job_id}", response_model=ImportJobPublic)

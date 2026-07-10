@@ -5,7 +5,7 @@ PORT ?= 8000
 DATABASE_URL_DEVTEST ?= postgresql+psycopg://postgres:postgres@localhost:5432/gabrr_budget_dev
 
 dev:
-	uv run uvicorn app.main:app --reload --port $(PORT) --env-file .env
+	uv run python -m uvicorn app.main:app --reload --port $(PORT) --env-file .env
 
 dev-worker:
 	uv run python -m app.workers.import_worker

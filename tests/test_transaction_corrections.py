@@ -171,6 +171,69 @@ def test_transaction_model_rejects_string_is_draft() -> None:
         Transaction(is_draft="false")
 
 
+def test_list_transactions_filters_drafts_by_import_job(
+    client_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, _ = client_session
+
+    response = client.get("/transactions?is_draft=true&import_job_id=job_a")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 2
+    assert {item["id"] for item in payload["items"]} == {
+        "tx_job_a_food",
+        "tx_job_a_uncategorized",
+    }
+    assert all(item["import_job_id"] == "job_a" for item in payload["items"])
+    assert all(item["is_draft"] is True for item in payload["items"])
+
+
+def test_list_transactions_filters_import_job_with_category(
+    client_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, _ = client_session
+
+    response = client.get("/transactions?is_draft=true&import_job_id=job_a&category=food")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 1
+    assert payload["items"][0]["id"] == "tx_job_a_food"
+    assert payload["items"][0]["category"] == "food"
+
+
+def test_list_transactions_filters_committed_by_import_job(
+    client_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, _ = client_session
+
+    response = client.get("/transactions?is_draft=false&import_job_id=job_a")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 1
+    assert payload["items"][0]["id"] == "tx_job_a_committed"
+    assert payload["items"][0]["is_draft"] is False
+
+
+def test_list_transactions_without_import_job_still_lists_drafts(
+    client_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, _ = client_session
+
+    response = client.get("/transactions?is_draft=true")
+
+    assert response.status_code == 200
+    payload = response.json()
+    item_ids = {item["id"] for item in payload["items"]}
+    assert payload["total"] == 4
+    assert "tx_other_user_job_a" not in item_ids
+    assert {"tx_correction", "tx_job_a_food", "tx_job_a_uncategorized", "tx_job_b"}.issubset(
+        item_ids
+    )
+
+
 def _seed_transaction_correction_rows(session: Session) -> None:
     session.add_all(
         [
@@ -180,6 +243,13 @@ def _seed_transaction_correction_rows(session: Session) -> None:
                 id="acct_demo_checking",
                 user_id="gabe",
                 name="Demo Checking",
+                type="checking",
+                currency="BRL",
+            ),
+            AccountSchema(
+                id="acct_other_checking",
+                user_id="other_user",
+                name="Other Checking",
                 type="checking",
                 currency="BRL",
             ),
@@ -212,6 +282,92 @@ def _seed_transaction_correction_rows(session: Session) -> None:
                 classification_source="agent",
                 classification_confidence=Decimal("0.7000"),
                 classification_reason="Agent classified this transaction.",
+            ),
+            TransactionSchema(
+                id="tx_job_a_food",
+                user_id="gabe",
+                account_id="acct_demo_checking",
+                category_id="cat_food",
+                import_job_id="job_a",
+                posted_at=date(2026, 5, 12),
+                description="Job A food",
+                amount=Decimal("-42.00"),
+                currency="BRL",
+                is_draft=True,
+                statement_kind="credit_card",
+                transaction_nature="expense",
+                report_bucket="living_cost",
+                classification_source="agent",
+                classification_confidence=Decimal("0.8600"),
+                classification_reason="Bucket set to living_cost.",
+            ),
+            TransactionSchema(
+                id="tx_job_a_uncategorized",
+                user_id="gabe",
+                account_id="acct_demo_checking",
+                import_job_id="job_a",
+                posted_at=date(2026, 5, 11),
+                description="Job A uncategorized",
+                amount=Decimal("-12.00"),
+                currency="BRL",
+                is_draft=True,
+                statement_kind="credit_card",
+                transaction_nature="expense",
+                report_bucket="unknown",
+                classification_source="system",
+                classification_confidence=None,
+                classification_reason=None,
+            ),
+            TransactionSchema(
+                id="tx_job_a_committed",
+                user_id="gabe",
+                account_id="acct_demo_checking",
+                import_job_id="job_a",
+                posted_at=date(2026, 5, 9),
+                description="Job A committed",
+                amount=Decimal("-15.00"),
+                currency="BRL",
+                is_draft=False,
+                statement_kind="credit_card",
+                transaction_nature="expense",
+                report_bucket="fixed_cost",
+                classification_source="user",
+                classification_confidence=Decimal("1.0000"),
+                classification_reason="User corrected classification.",
+            ),
+            TransactionSchema(
+                id="tx_job_b",
+                user_id="gabe",
+                account_id="acct_demo_checking",
+                import_job_id="job_b",
+                posted_at=date(2026, 5, 8),
+                description="Job B draft",
+                amount=Decimal("-22.00"),
+                currency="BRL",
+                is_draft=True,
+                statement_kind="checking_account",
+                transaction_nature="expense",
+                report_bucket="living_cost",
+                classification_source="agent",
+                classification_confidence=Decimal("0.7400"),
+                classification_reason="Bucket set to living_cost.",
+            ),
+            TransactionSchema(
+                id="tx_other_user_job_a",
+                user_id="other_user",
+                account_id="acct_other_checking",
+                import_job_id="job_a",
+                posted_at=date(2026, 5, 7),
+                description="Other user same job id",
+                amount=Decimal("-99.00"),
+                currency="BRL",
+                is_draft=True,
+                statement_kind="credit_card",
+                transaction_nature="expense",
+                report_bucket="living_cost",
+                classification_source="agent",
+                classification_confidence=Decimal("0.8000"),
+                classification_reason="Should not leak.",
             ),
         ]
     )

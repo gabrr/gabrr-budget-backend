@@ -39,16 +39,18 @@ The API and background workers are separate processes. For the **PDF import job*
 | Terminal         | Command                              | Port / role                                                      |
 | ---------------- | ------------------------------------ | ---------------------------------------------------------------- |
 | agent-normalizer | `cd ../agent-normalizer && make api` | **8001** — ADK REST API the backend calls via Agent Gateway      |
-| backend API      | `make dev`                           | **8000** — FastAPI (`uvicorn`, reload)                           |
+| backend API      | `make dev`                           | **8000** — FastAPI (`python -m uvicorn`, reload)                 |
 | import worker    | `make dev-worker`                    | — polls `import_jobs`, calls the agent, saves draft transactions |
 | frontend         | `cd ../frontend && npm run dev`      | **3000** — test UI at `/import`                                  |
 
 
-`**make dev`** — starts the HTTP API:
+`**make dev`** — starts the HTTP API through the project venv interpreter:
 
 ```bash
-make dev   # uvicorn on PORT (default 8000), loads .env
+make dev   # python -m uvicorn on PORT (default 8000), loads .env
 ```
+
+The `dev` target uses `uv run python -m uvicorn ...` so Uvicorn and application imports resolve from `apps/backend/.venv`, even when a global `uvicorn` console script exists on `PATH`.
 
 `**make dev-worker**` — starts the import job worker (`app.workers.import_worker`):
 
@@ -91,4 +93,3 @@ make test DATABASE_URL_DEVTEST='postgresql+psycopg://user:pass@host:5432/dbname'
 make test
 make test-agent-service   # requires agent-normalizer `make api` + API up; see AGENTIC_TESTING.md
 ```
-

@@ -1,6 +1,7 @@
 """Agent upload routes."""
 
 import hashlib
+import logging
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
@@ -17,6 +18,7 @@ from app.utils.files import ensure_not_empty, read_upload_bytes
 
 agents_router = APIRouter(prefix="/agents", tags=["agents"])
 _import_job_repository = ImportJobRepository()
+logger = logging.getLogger(__name__)
 
 
 def _sha256_bytes(uploaded_bytes: bytes) -> str:
@@ -49,6 +51,13 @@ async def agent_process_file(
                 detail="Idempotency-Key reused with different file content.",
             )
 
+        logger.info(
+            "import_job_reused job_id=%s idempotency_key=%s filename=%s size_bytes=%s",
+            existing_job.id,
+            idempotency_key,
+            existing_job.original_filename,
+            existing_job.size_bytes,
+        )
         return JSONResponse(status_code=200, content=import_job_to_public(existing_job).model_dump())
 
     try:
@@ -74,6 +83,13 @@ async def agent_process_file(
             size_bytes=len(uploaded_bytes),
             storage_path=absolute_path,
         )
+        logger.info(
+            "import_job_created job_id=%s filename=%s size_bytes=%s file_hash_prefix=%s",
+            job.id,
+            job.original_filename,
+            job.size_bytes,
+            file_hash[:12],
+        )
 
     except IntegrityError as error:
         session.rollback()
@@ -91,6 +107,13 @@ async def agent_process_file(
         )
 
         if existing_job is not None and existing_job.file_hash == file_hash:
+            logger.info(
+                "import_job_reused job_id=%s idempotency_key=%s filename=%s size_bytes=%s",
+                existing_job.id,
+                idempotency_key,
+                existing_job.original_filename,
+                existing_job.size_bytes,
+            )
             return JSONResponse(status_code=200, content=import_job_to_public(existing_job).model_dump())
 
         raise HTTPException(

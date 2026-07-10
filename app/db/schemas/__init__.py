@@ -11,6 +11,7 @@ from app.db.schemas.learned_rules import LearnedRuleSchema
 from app.db.schemas.transactions import TransactionSchema
 from app.db.schemas.uploaded_files import UploadedFileSchema
 from app.db.schemas.users import UserSchema
+from app.db.schemas.wealth import WealthCheckpointSchema, WealthProjectionSettingsSchema
 
 __all__ = [
     "AccountSchema",
@@ -26,4 +27,6 @@ __all__ = [
     "TransactionSchema",
     "UploadedFileSchema",
     "UserSchema",
+    "WealthCheckpointSchema",
+    "WealthProjectionSettingsSchema",
 ]

@@ -18,6 +18,16 @@ from app.db.models.learned_rules import LearnedRule
 from app.db.models.transaction import Transaction
 from app.db.models.uploaded_files import UploadedFile
 from app.db.models.users import User
+from app.db.models.wealth import (
+    MonthlyCapacityMonth,
+    MonthlyCapacityReport,
+    MonthlyReportCheckpoint,
+    WealthCheckpoint,
+    WealthCheckpointCreate,
+    WealthCheckpointList,
+    WealthProjectionSettings,
+    WealthProjectionSettingsUpdate,
+)
 
 __all__ = [
     "Account",
@@ -37,4 +47,12 @@ __all__ = [
     "Transaction",
     "UploadedFile",
     "User",
+    "MonthlyCapacityMonth",
+    "MonthlyCapacityReport",
+    "MonthlyReportCheckpoint",
+    "WealthCheckpoint",
+    "WealthCheckpointCreate",
+    "WealthCheckpointList",
+    "WealthProjectionSettings",
+    "WealthProjectionSettingsUpdate",
 ]

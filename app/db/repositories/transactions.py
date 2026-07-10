@@ -89,6 +89,7 @@ class TransactionRepository:
         category: ExpenseCategory | None = None,
         date_from: date | None = None,
         date_to: date | None = None,
+        import_job_id: str | None = None,
         is_draft: bool | None = None,
         limit: int = 50,
         offset: int = 0,
@@ -174,6 +175,14 @@ class TransactionRepository:
             )
             transaction_count_query = transaction_count_query.where(
                 TransactionSchema.posted_at <= date_to
+            )
+
+        if import_job_id is not None:
+            transactions_listing_query = transactions_listing_query.where(
+                TransactionSchema.import_job_id == import_job_id
+            )
+            transaction_count_query = transaction_count_query.where(
+                TransactionSchema.import_job_id == import_job_id
             )
 
         total = int(session.execute(transaction_count_query).scalar_one())
