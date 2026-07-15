@@ -156,6 +156,20 @@ def test_google_adk_gateway_emits_progress_and_parses_streamed_json(
                             "parts": [
                                 {
                                     "function_call": {
+                                        "name": "transfer_to_agent",
+                                        "args": {"agent_name": "statement_ingestion"},
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                )
+                + _sse_event(
+                    {
+                        "content": {
+                            "parts": [
+                                {
+                                    "function_call": {
                                         "name": "convert_statement_document_to_markdown",
                                         "args": {"file_path": "/tmp/secret.pdf"},
                                     }
@@ -210,6 +224,10 @@ def test_google_adk_gateway_emits_progress_and_parses_streamed_json(
     assert result.status == "success"
     assert result.data == {"transactions": []}
     assert progress_events == [
+        AgentProgressEvent(
+            code="statement_ingestion.started",
+            message="Starting statement ingestion",
+        ),
         AgentProgressEvent(code="pdf.converting", message="Converting PDF to Markdown"),
         AgentProgressEvent(code="pdf.converted", message="PDF converted to Markdown"),
         AgentProgressEvent(
@@ -217,4 +235,3 @@ def test_google_adk_gateway_emits_progress_and_parses_streamed_json(
             message="Generating transaction JSON",
         ),
     ]
-

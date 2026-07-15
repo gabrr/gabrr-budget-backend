@@ -6,6 +6,7 @@ import httpx
 
 from app.agents.models import (
     AgentProgressCallback,
+    AgentProgressEvent,
     StatementImportResult,
     agent_error_result,
     agent_success_result,
@@ -41,6 +42,13 @@ class GoogleAdkAgentGateway:
     ) -> StatementImportResult:
         prompt = f"process this file: {file_path}"
         timeout = httpx.Timeout(self._timeout_seconds)
+        emitted_progress_codes: set[str] = set()
+
+        async def emit_progress(event: AgentProgressEvent) -> None:
+            if on_progress is None or event.code in emitted_progress_codes:
+                return
+            emitted_progress_codes.add(event.code)
+            await on_progress(event)
 
         try:
             async with httpx.AsyncClient(timeout=timeout) as http_client:
@@ -51,6 +59,12 @@ class GoogleAdkAgentGateway:
                 )
                 session_id = await client.create_session(user_id=user_id)
                 text_parts: list[str] = []
+                await emit_progress(
+                    AgentProgressEvent(
+                        code="statement_ingestion.started",
+                        message="Starting statement ingestion",
+                    )
+                )
 
                 async for event in client.run_sse(
                     user_id=user_id,
@@ -58,8 +72,8 @@ class GoogleAdkAgentGateway:
                     prompt=prompt,
                 ):
                     progress = map_google_adk_event_to_progress(event)
-                    if progress is not None and on_progress is not None:
-                        await on_progress(progress)
+                    if progress is not None:
+                        await emit_progress(progress)
 
                     text = google_adk_text_from_event(event)
                     if text:
@@ -78,4 +92,3 @@ class GoogleAdkAgentGateway:
             return agent_error_result()
 
         return agent_success_result(parsed)
-
