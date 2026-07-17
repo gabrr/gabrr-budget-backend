@@ -1,0 +1,16 @@
+.git
+.gitignore
+.venv
+.env
+.env.*
+prod.env
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+.DS_Store
+data
+tests
+file_examples
+md_files
+exports
