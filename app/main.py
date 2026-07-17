@@ -4,27 +4,30 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import router as api_router
+from app.config import Settings, settings
 from app.logging_config import configure_logging
 
 configure_logging()
 
-app = FastAPI(
-    title="Gabrr Budget API",
-    description="Parse financial documents (CSV/PDF) into normalized transactions",
-    version="0.1.0",
-)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:3001",
-        "http://127.0.0.1:3001",
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+def create_app(app_settings: Settings | None = None) -> FastAPI:
+    resolved_settings = app_settings or settings
+    app = FastAPI(
+        title="Gabrr Budget API",
+        description="Parse financial documents (CSV/PDF) into normalized transactions",
+        version="0.1.0",
+    )
 
-app.include_router(api_router)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=resolved_settings.parsed_cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    app.include_router(api_router)
+
+    return app
+
+
+app = create_app()

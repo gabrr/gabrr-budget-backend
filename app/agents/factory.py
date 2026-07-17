@@ -7,8 +7,7 @@ from app.config import settings
 
 def create_agent_gateway() -> AgentGateway:
     return GoogleAdkAgentGateway(
-        base_url=settings.adk_base_url,
+        base_url=settings.agent_base_url,
         app_name=settings.adk_app_name,
-        timeout_seconds=settings.adk_timeout_seconds,
+        timeout_seconds=settings.agent_timeout_seconds,
     )
-
