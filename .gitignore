@@ -12,6 +12,7 @@ venv/**/*
 .venv
 .env*
 !.env.example
+prod.env
 file_examples/**/*
 md_files/**/*
 exports/**/*

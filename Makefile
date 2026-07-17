@@ -1,4 +1,4 @@
-.PHONY: dev dev-worker curl-smoke test test-agent-service lint format
+.PHONY: dev prod migrate-prod dev-worker curl-smoke test test-agent-service lint format
 
 PORT ?= 8000
 
@@ -6,6 +6,12 @@ DATABASE_URL_DEVTEST ?= postgresql+psycopg://postgres:postgres@localhost:5432/ga
 
 dev:
 	uv run python -m uvicorn app.main:app --reload --port $(PORT) --env-file .env
+
+prod:
+	uv run --env-file prod.env python -m uvicorn app.main:app --host 0.0.0.0 --port $(PORT)
+
+migrate-prod:
+	uv run --env-file prod.env python -m alembic upgrade head
 
 dev-worker:
 	uv run python -m app.workers.import_worker
