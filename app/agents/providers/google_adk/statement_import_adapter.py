@@ -4,6 +4,7 @@ import logging
 
 import httpx
 
+from app.agents.auth import AgentTokenProvider, NoAuthAgentTokenProvider
 from app.agents.models import (
     AgentProgressCallback,
     AgentProgressEvent,
@@ -28,10 +29,12 @@ class GoogleAdkAgentGateway:
         base_url: str,
         app_name: str,
         timeout_seconds: float,
+        token_provider: AgentTokenProvider | None = None,
     ) -> None:
-        self._base_url = base_url
+        self._base_url = base_url.rstrip("/")
         self._app_name = app_name
         self._timeout_seconds = timeout_seconds
+        self._token_provider = token_provider or NoAuthAgentTokenProvider()
 
     async def extract_statement_transactions(
         self,
@@ -51,7 +54,10 @@ class GoogleAdkAgentGateway:
             await on_progress(event)
 
         try:
-            async with httpx.AsyncClient(timeout=timeout) as http_client:
+            token = await self._token_provider.get_token(self._base_url)
+            headers = {"Authorization": f"Bearer {token}"} if token else {}
+
+            async with httpx.AsyncClient(timeout=timeout, headers=headers) as http_client:
                 client = GoogleAdkClient(
                     http_client,
                     base_url=self._base_url,

@@ -29,6 +29,7 @@ class Settings(BaseSettings):
 
     # Remote agent settings used by the backend Agent Gateway.
     agent_base_url: str = "http://127.0.0.1:8001"
+    agent_auth_mode: Literal["none", "google"] = "none"
     adk_app_name: str = "app"
     agent_timeout_seconds: float = Field(default=300.0, gt=0)
 

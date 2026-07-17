@@ -4,6 +4,7 @@ import asyncio
 import json
 
 import httpx
+import pytest
 
 from app.agents.models import AgentProgressEvent
 from app.agents.providers.google_adk.client import GoogleAdkClient
@@ -235,3 +236,86 @@ def test_google_adk_gateway_emits_progress_and_parses_streamed_json(
             message="Generating transaction JSON",
         ),
     ]
+
+
+def test_google_adk_gateway_authenticates_all_requests_with_one_token(monkeypatch) -> None:
+    authorization_headers: list[str | None] = []
+
+    class RecordingTokenProvider:
+        def __init__(self) -> None:
+            self.audiences: list[str] = []
+
+        async def get_token(self, audience: str) -> str:
+            self.audiences.append(audience)
+            return "signed-token"
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        authorization_headers.append(request.headers.get("Authorization"))
+        if request.url.path == "/apps/app/users/user/sessions":
+            return httpx.Response(200, json={"id": "session"})
+        if request.url.path == "/run_sse":
+            return httpx.Response(200, content=_sse_event(_text_event('{"transactions": []}')))
+        return httpx.Response(404)
+
+    class FakeAsyncClient(httpx.AsyncClient):
+        def __init__(self, *args, **kwargs) -> None:
+            super().__init__(
+                transport=httpx.MockTransport(handler),
+                base_url="https://agent.test",
+                headers=kwargs.get("headers"),
+            )
+
+    monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+    token_provider = RecordingTokenProvider()
+
+    async def run_test():
+        gateway = GoogleAdkAgentGateway(
+            base_url="https://agent.test/",
+            app_name="app",
+            timeout_seconds=1,
+            token_provider=token_provider,
+        )
+        return await gateway.extract_statement_transactions(
+            "/tmp/statement.pdf",
+            user_id="user",
+        )
+
+    result = asyncio.run(run_test())
+
+    assert result.status == "success"
+    assert token_provider.audiences == ["https://agent.test"]
+    assert authorization_headers == ["Bearer signed-token", "Bearer signed-token"]
+
+
+def test_google_adk_gateway_does_not_send_request_when_token_fetch_fails(
+    monkeypatch,
+) -> None:
+    request_count = 0
+
+    class FailingTokenProvider:
+        async def get_token(self, audience: str) -> str:
+            raise RuntimeError("credentials unavailable")
+
+    class UnexpectedAsyncClient:
+        def __init__(self, *args, **kwargs) -> None:
+            nonlocal request_count
+            request_count += 1
+
+    monkeypatch.setattr(httpx, "AsyncClient", UnexpectedAsyncClient)
+
+    gateway = GoogleAdkAgentGateway(
+        base_url="https://agent.test",
+        app_name="app",
+        timeout_seconds=1,
+        token_provider=FailingTokenProvider(),
+    )
+
+    with pytest.raises(RuntimeError, match="credentials unavailable"):
+        asyncio.run(
+            gateway.extract_statement_transactions(
+                "/tmp/statement.pdf",
+                user_id="user",
+            )
+        )
+
+    assert request_count == 0

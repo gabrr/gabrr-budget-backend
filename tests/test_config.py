@@ -65,6 +65,14 @@ def test_agent_timeout_must_be_positive() -> None:
         create_settings(agent_timeout_seconds=0)
 
 
+def test_agent_auth_mode_must_be_supported() -> None:
+    assert create_settings(agent_auth_mode="none").agent_auth_mode == "none"
+    assert create_settings(agent_auth_mode="google").agent_auth_mode == "google"
+
+    with pytest.raises(ValidationError):
+        create_settings(agent_auth_mode="shared-secret")
+
+
 def test_vercel_preflight_is_allowed() -> None:
     client = TestClient(
         create_app(
