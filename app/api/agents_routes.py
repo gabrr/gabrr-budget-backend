@@ -3,18 +3,20 @@
 import hashlib
 import logging
 
-from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.import_jobs_routes import import_job_to_public
+from app.auth import CurrentUser
 from app.config import settings
 from app.db.models.import_jobs import ImportJobPublic
 from app.db.repositories.import_jobs import ImportJobRepository
 from app.db.session import get_session
 from app.services.file_storage_service import FileSystemService
 from app.utils.files import ensure_not_empty, read_upload_bytes
+from app.workers.import_worker.main import process_job
 
 agents_router = APIRouter(prefix="/agents", tags=["agents"])
 _import_job_repository = ImportJobRepository()
@@ -25,13 +27,14 @@ def _sha256_bytes(uploaded_bytes: bytes) -> str:
     return hashlib.sha256(uploaded_bytes).hexdigest()
 
 
-@agents_router.post("/process-file", response_model=None, status_code=202)
+@agents_router.post("/process-file", response_model=None, status_code=200)
 async def agent_process_file(
+    current_user: CurrentUser,
     file: UploadFile = File(...),
-    user_id: str = Form(default=settings.default_user_id),
     idempotency_key: str = Header(alias="Idempotency-Key"),
     session: Session = Depends(get_session),
 ) -> ImportJobPublic | JSONResponse:
+    user_id = current_user.id
     maximum_bytes = settings.max_file_upload_bytes
     uploaded_bytes = await read_upload_bytes(file, maximum_bytes, settings.max_file_upload_mb)
     ensure_not_empty(uploaded_bytes)
@@ -125,4 +128,19 @@ async def agent_process_file(
         file_system_service.delete_if_exists(absolute_path)
         raise
 
-    return import_job_to_public(job)
+    session.commit()
+    try:
+        await process_job(job.id, worker_id=f"request-{job.id}")
+    finally:
+        file_system_service.delete_if_exists(absolute_path)
+
+    session.expire_all()
+    processed_job = _import_job_repository.get_by_id(
+        session,
+        job_id=job.id,
+        user_id=user_id,
+    )
+    if processed_job is None:
+        raise HTTPException(status_code=500, detail="Import job disappeared during processing.")
+
+    return import_job_to_public(processed_job)

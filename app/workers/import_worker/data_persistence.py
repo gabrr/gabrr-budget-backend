@@ -36,7 +36,7 @@ def save_parsed_import_result(
     transaction_repository.create_many(
         session,
         transactions,
-        default_user_id=user_id,
+        user_id=user_id,
         default_account_id=default_account_id,
     )
     import_job_repository.mark_step(

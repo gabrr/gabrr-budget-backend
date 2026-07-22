@@ -5,7 +5,7 @@ from decimal import Decimal
 from sqlalchemy import JSON, ForeignKey, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base, TimestampMixin, new_id
+from app.db.base import Base, TimestampMixin, UserId, new_id
 
 
 class LearnedRuleSchema(TimestampMixin, Base):
@@ -16,7 +16,11 @@ class LearnedRuleSchema(TimestampMixin, Base):
         primary_key=True,
         default=lambda: new_id("rule"),
     )
-    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    user_id: Mapped[str] = mapped_column(
+        UserId(),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     rule_type: Mapped[str] = mapped_column(String(80), nullable=False)
     match_pattern: Mapped[str] = mapped_column(String(500), nullable=False)
     result_payload_json: Mapped[dict] = mapped_column(JSON, nullable=False)

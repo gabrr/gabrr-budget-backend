@@ -6,6 +6,7 @@ import logging
 import socket
 import time
 import uuid
+from pathlib import Path
 
 from app.agents.factory import create_agent_gateway
 from app.agents.models import AgentProgressEvent
@@ -21,6 +22,10 @@ _import_job_repository = ImportJobRepository()
 _transaction_repository = TransactionRepository()
 logger = logging.getLogger(__name__)
 POLL_INTERVAL_SECONDS = 2
+
+
+def _read_pdf_bytes(storage_path: str) -> bytes:
+    return Path(storage_path).read_bytes()
 
 
 async def process_job(
@@ -59,7 +64,10 @@ async def process_job(
         )
         session.commit()
 
-    agent_input = {"storage_path": storage_path}
+    agent_input = {
+        "filename": job.original_filename,
+        "size_bytes": job.size_bytes,
+    }
 
     try:
         phase = "saving_agent_input"
@@ -102,7 +110,8 @@ async def process_job(
         phase = "agent_extract"
         logger.info("agent_extract_started job_id=%s", job_id)
         result = await agent_gateway.extract_statement_transactions(
-            storage_path,
+            _read_pdf_bytes(storage_path),
+            filename=job.original_filename or "statement.pdf",
             user_id=user_id,
             on_progress=handle_agent_progress,
         )

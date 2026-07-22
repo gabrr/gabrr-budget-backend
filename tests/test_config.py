@@ -12,6 +12,9 @@ VERCEL_ORIGIN = "https://frontend-three-jet-40.vercel.app"
 
 
 def create_settings(**overrides: object) -> Settings:
+    if overrides.get("app_env") == "production":
+        overrides.setdefault("supabase_url", "https://project.supabase.co")
+        overrides.setdefault("allowed_user_email", "gabe@example.test")
     return Settings(
         _env_file=None,
         database_url=DATABASE_URL,
@@ -88,15 +91,30 @@ def test_vercel_preflight_is_allowed() -> None:
         headers={
             "Origin": VERCEL_ORIGIN,
             "Access-Control-Request-Method": "POST",
-            "Access-Control-Request-Headers": "Content-Type,Idempotency-Key",
+            "Access-Control-Request-Headers": "Authorization,Content-Type,Idempotency-Key",
         },
     )
 
     assert response.status_code == 200
     assert response.headers["access-control-allow-origin"] == VERCEL_ORIGIN
     allowed_headers = response.headers["access-control-allow-headers"].lower()
+    assert "authorization" in allowed_headers
     assert "content-type" in allowed_headers
     assert "idempotency-key" in allowed_headers
+
+
+def test_production_disables_api_documentation() -> None:
+    client = TestClient(
+        create_app(
+            create_settings(
+                app_env="production",
+                cors_origins=VERCEL_ORIGIN,
+            )
+        )
+    )
+
+    assert client.get("/docs").status_code == 404
+    assert client.get("/openapi.json").status_code == 404
 
 
 def test_disallowed_origin_receives_no_cors_permission() -> None:

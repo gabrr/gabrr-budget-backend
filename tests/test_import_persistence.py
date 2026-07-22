@@ -13,7 +13,9 @@ from app.db.repositories.transactions import (
     transaction_schema_to_model,
 )
 from app.db.schemas import Base
+from app.db.schemas.accounts import AccountSchema
 from app.db.schemas.import_jobs import ImportJobSchema
+from app.db.schemas.users import UserSchema
 from app.workers.import_worker.data_mapping import (
     normalize_imported_amount,
     parse_agent_result_for_persistence,
@@ -129,15 +131,29 @@ def test_repositories_persist_and_replace_import_classification_fields() -> None
     )
 
     with Session() as session:
-        session.add(
-            ImportJobSchema(
+        session.add_all(
+            [
+                UserSchema(
+                    id="user_123",
+                    email="user@example.test",
+                    display_name="Test User",
+                ),
+                AccountSchema(
+                    id="acct_123",
+                    user_id="user_123",
+                    name="Checking",
+                    type="checking",
+                    currency="BRL",
+                ),
+                ImportJobSchema(
                 id="job_123",
                 user_id="user_123",
                 status="processing",
                 storage_path="/tmp/example.pdf",
                 file_hash="abc",
                 idempotency_key="idem",
-            )
+                ),
+            ]
         )
         session.commit()
 
@@ -146,7 +162,7 @@ def test_repositories_persist_and_replace_import_classification_fields() -> None
         transactions.create_many(
             session,
             transaction_items,
-            default_user_id="user_123",
+            user_id="user_123",
             default_account_id="acct_123",
         )
         session.commit()

@@ -5,7 +5,7 @@ from datetime import datetime
 from sqlalchemy import JSON, DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base, new_id
+from app.db.base import Base, UserId, new_id
 
 
 class ActivityEventSchema(Base):
@@ -16,7 +16,11 @@ class ActivityEventSchema(Base):
         primary_key=True,
         default=lambda: new_id("act"),
     )
-    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    user_id: Mapped[str] = mapped_column(
+        UserId(),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     event_type: Mapped[str] = mapped_column(String(80), nullable=False)
     entity_type: Mapped[str] = mapped_column(String(80), nullable=False)
     entity_id: Mapped[str] = mapped_column(String(80), nullable=False)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 
 import httpx
@@ -23,6 +24,20 @@ def _text_event(text: str) -> dict:
 def test_google_adk_client_run_sse_yields_raw_events() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/run_sse"
+        payload = json.loads(request.content)
+        assert payload["appName"] == "app"
+        assert payload["userId"] == "user"
+        assert payload["sessionId"] == "session"
+        assert payload["newMessage"]["parts"] == [
+            {"text": "Process the attached PDF."},
+            {
+                "inlineData": {
+                    "displayName": "statement.pdf",
+                    "mimeType": "application/pdf",
+                    "data": base64.b64encode(b"%PDF-1.4\n%%EOF").decode("ascii"),
+                }
+            },
+        ]
         body = (
             ": heartbeat\n\n"
             + _sse_event({"content": {"parts": [{"function_call": {"name": "noop"}}]}})
@@ -45,7 +60,9 @@ def test_google_adk_client_run_sse_yields_raw_events() -> None:
                 async for event in adk_client.run_sse(
                     user_id="user",
                     session_id="session",
-                    prompt="prompt",
+                    prompt="Process the attached PDF.",
+                    pdf_bytes=b"%PDF-1.4\n%%EOF",
+                    filename="statement.pdf",
                 )
             ]
 
@@ -102,14 +119,14 @@ def test_google_adk_mapper_maps_chunk_response_with_count() -> None:
     assert "PRIVATE MARKDOWN" not in progress.message
 
 
-def test_google_adk_mapper_does_not_expose_local_file_path() -> None:
+def test_google_adk_converter_event_has_no_file_path_argument() -> None:
     event = {
         "content": {
             "parts": [
                 {
                     "function_call": {
                         "name": "convert_statement_document_to_markdown",
-                        "args": {"file_path": "/Users/gabe/private.pdf"},
+                        "args": {},
                     }
                 }
             ]
@@ -122,7 +139,6 @@ def test_google_adk_mapper_does_not_expose_local_file_path() -> None:
         code="pdf.converting",
         message="Converting PDF to Markdown",
     )
-    assert "/Users/gabe/private.pdf" not in progress.message
 
 
 def test_google_adk_mapper_does_not_expose_transaction_json() -> None:
@@ -150,6 +166,11 @@ def test_google_adk_gateway_emits_progress_and_parses_streamed_json(
             return httpx.Response(200, json={"id": "session"})
 
         if request.url.path == "/run_sse":
+            payload = json.loads(request.content)
+            parts = payload["newMessage"]["parts"]
+            assert parts[0] == {"text": "Process the attached financial statement PDF."}
+            assert base64.b64decode(parts[1]["inlineData"]["data"]) == b"%PDF-test"
+            assert parts[1]["inlineData"]["displayName"] == "statement.pdf"
             body = (
                 _sse_event(
                     {
@@ -172,7 +193,7 @@ def test_google_adk_gateway_emits_progress_and_parses_streamed_json(
                                 {
                                     "function_call": {
                                         "name": "convert_statement_document_to_markdown",
-                                        "args": {"file_path": "/tmp/secret.pdf"},
+                                        "args": {},
                                     }
                                 }
                             ]
@@ -197,6 +218,10 @@ def test_google_adk_gateway_emits_progress_and_parses_streamed_json(
             )
             return httpx.Response(200, content=body)
 
+        if request.url.path == "/apps/app/users/user/sessions/session":
+            assert request.method == "DELETE"
+            return httpx.Response(204)
+
         return httpx.Response(404)
 
     class FakeAsyncClient(httpx.AsyncClient):
@@ -215,7 +240,8 @@ def test_google_adk_gateway_emits_progress_and_parses_streamed_json(
             timeout_seconds=1,
         )
         return await gateway.extract_statement_transactions(
-            "/tmp/secret.pdf",
+            b"%PDF-test",
+            filename="statement.pdf",
             user_id="user",
             on_progress=on_progress,
         )
@@ -255,6 +281,9 @@ def test_google_adk_gateway_authenticates_all_requests_with_one_token(monkeypatc
             return httpx.Response(200, json={"id": "session"})
         if request.url.path == "/run_sse":
             return httpx.Response(200, content=_sse_event(_text_event('{"transactions": []}')))
+        if request.url.path == "/apps/app/users/user/sessions/session":
+            assert request.method == "DELETE"
+            return httpx.Response(204)
         return httpx.Response(404)
 
     class FakeAsyncClient(httpx.AsyncClient):
@@ -276,7 +305,8 @@ def test_google_adk_gateway_authenticates_all_requests_with_one_token(monkeypatc
             token_provider=token_provider,
         )
         return await gateway.extract_statement_transactions(
-            "/tmp/statement.pdf",
+            b"%PDF-test",
+            filename="statement.pdf",
             user_id="user",
         )
 
@@ -284,7 +314,11 @@ def test_google_adk_gateway_authenticates_all_requests_with_one_token(monkeypatc
 
     assert result.status == "success"
     assert token_provider.audiences == ["https://agent.test"]
-    assert authorization_headers == ["Bearer signed-token", "Bearer signed-token"]
+    assert authorization_headers == [
+        "Bearer signed-token",
+        "Bearer signed-token",
+        "Bearer signed-token",
+    ]
 
 
 def test_google_adk_gateway_does_not_send_request_when_token_fetch_fails(
@@ -313,7 +347,8 @@ def test_google_adk_gateway_does_not_send_request_when_token_fetch_fails(
     with pytest.raises(RuntimeError, match="credentials unavailable"):
         asyncio.run(
             gateway.extract_statement_transactions(
-                "/tmp/statement.pdf",
+                b"%PDF-test",
+                filename="statement.pdf",
                 user_id="user",
             )
         )

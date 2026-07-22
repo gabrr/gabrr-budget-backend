@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, contains_eager, joinedload
 
 from app.db.models.categories import ExpenseCategory
 from app.db.models.transaction import Transaction
+from app.db.schemas.accounts import AccountSchema
 from app.db.schemas.categories import CategorySchema
 from app.db.schemas.transactions import TransactionSchema
 
@@ -24,10 +25,13 @@ REPORT_BUCKETS = {
 }
 TRANSACTION_NATURES = {"income", "expense", "transfer", "refund", "card_payment", "unknown"}
 PROTECTED_PATCH_FIELDS = {
+    "account_id",
     "classification_source",
-    "statement_kind",
     "import_job_id",
     "running_balance",
+    "source_import_id",
+    "statement_kind",
+    "user_id",
 }
 
 
@@ -227,7 +231,7 @@ class TransactionRepository:
         session: Session,
         payload: Transaction,
         *,
-        default_user_id: str,
+        user_id: str,
         default_account_id: str,
     ) -> TransactionSchema:
         posted_at = payload.posted_at or payload.date
@@ -238,8 +242,9 @@ class TransactionRepository:
         if payload.amount is None:
             raise ValueError("amount is required")
 
-        user_id = payload.user_id or default_user_id
-        account_id = payload.account_id or default_account_id
+        account_id = default_account_id
+        _validate_account_id(session, user_id=user_id, account_id=account_id)
+        _validate_category_id(session, user_id=user_id, category_id=payload.category_id)
 
         new_transaction_schema = TransactionSchema(
             user_id=user_id,
@@ -282,7 +287,7 @@ class TransactionRepository:
         session: Session,
         items: list[Transaction],
         *,
-        default_user_id: str,
+        user_id: str,
         default_account_id: str,
     ) -> list[TransactionSchema]:
         created_transaction_schemas: list[TransactionSchema] = []
@@ -291,7 +296,7 @@ class TransactionRepository:
                 self.create(
                     session,
                     payload,
-                    default_user_id=default_user_id,
+                    user_id=user_id,
                     default_account_id=default_account_id,
                 )
             )
@@ -520,3 +525,9 @@ def _validate_category_id(
         raise ValueError("category_id does not exist")
     if category.user_id not in {None, user_id} and not category.is_system:
         raise ValueError("category_id is not available to this user")
+
+
+def _validate_account_id(session: Session, *, user_id: str, account_id: str) -> None:
+    account = session.get(AccountSchema, account_id)
+    if account is None or account.user_id != user_id or not account.is_active:
+        raise ValueError("Default account is not available to this user")

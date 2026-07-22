@@ -4,14 +4,15 @@ import asyncio
 import json
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
+from sqlalchemy.orm import Session
 
-from app.config import settings
+from app.auth import CurrentUser
 from app.db.models.import_jobs import ImportJobPublic
 from app.db.repositories.import_jobs import ImportJobRepository
 from app.db.schemas.import_jobs import ImportJobSchema
-from app.db.session import SessionLocal
+from app.db.session import SessionLocal, get_session
 
 import_jobs_router = APIRouter(prefix="/import-jobs", tags=["import-jobs"])
 _import_job_repository = ImportJobRepository()
@@ -44,47 +45,61 @@ def _isoformat_or_none(value: datetime | None) -> str | None:
 
 
 @import_jobs_router.get("", response_model=list[ImportJobPublic])
-async def list_import_jobs(limit: int = 20) -> list[ImportJobPublic]:
+async def list_import_jobs(
+    current_user: CurrentUser,
+    session: Session = Depends(get_session),
+    limit: int = 20,
+) -> list[ImportJobPublic]:
     bounded_limit = min(max(limit, 1), 50)
-    with SessionLocal() as session:
-        jobs = _import_job_repository.list_recent(
-            session,
-            user_id=settings.default_user_id,
-            limit=bounded_limit,
-        )
+    jobs = _import_job_repository.list_recent(
+        session,
+        user_id=current_user.id,
+        limit=bounded_limit,
+    )
 
-        return [import_job_to_public(job) for job in jobs]
+    return [import_job_to_public(job) for job in jobs]
 
 
 @import_jobs_router.get("/active", response_model=ImportJobPublic | None)
-async def get_active_import_job() -> Response | ImportJobPublic:
-    with SessionLocal() as session:
-        job = _import_job_repository.get_latest_active(
-            session,
-            user_id=settings.default_user_id,
-        )
-        if job is None:
-            return Response(status_code=204)
+async def get_active_import_job(
+    current_user: CurrentUser,
+    session: Session = Depends(get_session),
+) -> Response | ImportJobPublic:
+    job = _import_job_repository.get_latest_active(
+        session,
+        user_id=current_user.id,
+    )
+    if job is None:
+        return Response(status_code=204)
 
-        return import_job_to_public(job)
+    return import_job_to_public(job)
 
 
 @import_jobs_router.get("/{job_id}", response_model=ImportJobPublic)
-async def get_import_job(job_id: str) -> ImportJobPublic:
-    with SessionLocal() as session:
-        job = _import_job_repository.get_by_id(
-            session,
-            job_id=job_id,
-            user_id=settings.default_user_id,
-        )
-        if job is None:
-            raise HTTPException(status_code=404, detail="Import job not found")
+async def get_import_job(
+    job_id: str,
+    current_user: CurrentUser,
+    session: Session = Depends(get_session),
+) -> ImportJobPublic:
+    job = _import_job_repository.get_by_id(
+        session,
+        job_id=job_id,
+        user_id=current_user.id,
+    )
+    if job is None:
+        raise HTTPException(status_code=404, detail="Import job not found")
 
-        return import_job_to_public(job)
+    return import_job_to_public(job)
 
 
 @import_jobs_router.get("/{job_id}/events")
-async def stream_import_job_events(job_id: str, request: Request) -> StreamingResponse:
+async def stream_import_job_events(
+    job_id: str,
+    request: Request,
+    current_user: CurrentUser,
+) -> StreamingResponse:
+    user_id = current_user.id
+
     async def event_stream():
         last_event_key: tuple[str, str | None, str | None, datetime | None] | None = None
 
@@ -96,7 +111,7 @@ async def stream_import_job_events(job_id: str, request: Request) -> StreamingRe
                 job = _import_job_repository.get_by_id(
                     session,
                     job_id=job_id,
-                    user_id=settings.default_user_id,
+                    user_id=user_id,
                 )
 
                 if job is None:

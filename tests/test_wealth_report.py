@@ -10,6 +10,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.auth import get_current_user
 from app.db.schemas import Base
 from app.db.schemas.accounts import AccountSchema
 from app.db.schemas.transactions import TransactionSchema
@@ -44,6 +45,11 @@ def client_session() -> Generator[tuple[TestClient, sessionmaker[Session]], None
             db.close()
 
     app.dependency_overrides[get_session] = override_get_session
+    app.dependency_overrides[get_current_user] = lambda: UserSchema(
+        id="gabe",
+        email="gabe@example.test",
+        display_name="Gabe",
+    )
     try:
         yield TestClient(app), SessionLocal
     finally:

@@ -6,7 +6,7 @@ from decimal import Decimal
 from sqlalchemy import Date, ForeignKey, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base, TimestampMixin, new_id
+from app.db.base import Base, TimestampMixin, UserId, new_id
 
 
 class BudgetSchema(TimestampMixin, Base):
@@ -17,7 +17,11 @@ class BudgetSchema(TimestampMixin, Base):
         primary_key=True,
         default=lambda: new_id("bdg"),
     )
-    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    user_id: Mapped[str] = mapped_column(
+        UserId(),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     category_id: Mapped[str] = mapped_column(ForeignKey("categories.id"), nullable=False)
     account_id: Mapped[str | None] = mapped_column(ForeignKey("accounts.id"))
     period_start: Mapped[date] = mapped_column(Date, nullable=False)

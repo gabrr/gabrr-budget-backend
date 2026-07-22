@@ -38,12 +38,13 @@ class GoogleAdkAgentGateway:
 
     async def extract_statement_transactions(
         self,
-        file_path: str,
+        pdf_bytes: bytes,
         *,
+        filename: str,
         user_id: str,
         on_progress: AgentProgressCallback | None = None,
     ) -> StatementImportResult:
-        prompt = f"process this file: {file_path}"
+        prompt = "Process the attached financial statement PDF."
         timeout = httpx.Timeout(self._timeout_seconds)
         emitted_progress_codes: set[str] = set()
 
@@ -65,25 +66,33 @@ class GoogleAdkAgentGateway:
                 )
                 session_id = await client.create_session(user_id=user_id)
                 text_parts: list[str] = []
-                await emit_progress(
-                    AgentProgressEvent(
-                        code="statement_ingestion.started",
-                        message="Starting statement ingestion",
+                try:
+                    await emit_progress(
+                        AgentProgressEvent(
+                            code="statement_ingestion.started",
+                            message="Starting statement ingestion",
+                        )
                     )
-                )
 
-                async for event in client.run_sse(
-                    user_id=user_id,
-                    session_id=session_id,
-                    prompt=prompt,
-                ):
-                    progress = map_google_adk_event_to_progress(event)
-                    if progress is not None:
-                        await emit_progress(progress)
+                    async for event in client.run_sse(
+                        user_id=user_id,
+                        session_id=session_id,
+                        prompt=prompt,
+                        pdf_bytes=pdf_bytes,
+                        filename=filename,
+                    ):
+                        progress = map_google_adk_event_to_progress(event)
+                        if progress is not None:
+                            await emit_progress(progress)
 
-                    text = google_adk_text_from_event(event)
-                    if text:
-                        text_parts.append(text)
+                        text = google_adk_text_from_event(event)
+                        if text:
+                            text_parts.append(text)
+                finally:
+                    try:
+                        await client.delete_session(user_id=user_id, session_id=session_id)
+                    except httpx.HTTPError as cleanup_error:
+                        logger.warning("Google ADK session cleanup failed: %s", cleanup_error)
 
         except httpx.HTTPError as http_error:
             logger.warning("Google ADK HTTP error: %s", http_error)

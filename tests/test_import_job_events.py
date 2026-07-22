@@ -13,6 +13,7 @@ from app.api.import_jobs_routes import import_job_event_key, import_job_to_publi
 from app.db.repositories.import_jobs import ImportJobRepository
 from app.db.schemas import Base
 from app.db.schemas.import_jobs import ImportJobSchema
+from app.db.schemas.users import UserSchema
 
 
 class FakeSessionLocal:
@@ -21,6 +22,9 @@ class FakeSessionLocal:
 
     def __exit__(self, *args: object) -> None:
         return None
+
+
+CURRENT_USER = UserSchema(id="gabe", email="gabe@example.test", display_name="Gabe")
 
 
 class FakeImportJobRepository:
@@ -128,7 +132,12 @@ def test_active_import_job_returns_latest_active_job(monkeypatch) -> None:
     monkeypatch.setattr(import_jobs_routes, "_import_job_repository", repository)
     monkeypatch.setattr(import_jobs_routes, "SessionLocal", FakeSessionLocal)
 
-    response = asyncio.run(import_jobs_routes.get_active_import_job())
+    response = asyncio.run(
+        import_jobs_routes.get_active_import_job(
+            current_user=CURRENT_USER,
+            session=object(),
+        )
+    )
 
     assert not isinstance(response, Response)
     assert response.job_id == "job_processing"
@@ -140,7 +149,12 @@ def test_active_import_job_returns_204_when_no_active_job(monkeypatch) -> None:
     monkeypatch.setattr(import_jobs_routes, "_import_job_repository", repository)
     monkeypatch.setattr(import_jobs_routes, "SessionLocal", FakeSessionLocal)
 
-    response = asyncio.run(import_jobs_routes.get_active_import_job())
+    response = asyncio.run(
+        import_jobs_routes.get_active_import_job(
+            current_user=CURRENT_USER,
+            session=object(),
+        )
+    )
 
     assert isinstance(response, Response)
     assert response.status_code == 204
@@ -157,7 +171,13 @@ def test_list_import_jobs_returns_recent_jobs_with_bounded_limit(monkeypatch) ->
     monkeypatch.setattr(import_jobs_routes, "_import_job_repository", repository)
     monkeypatch.setattr(import_jobs_routes, "SessionLocal", FakeSessionLocal)
 
-    response = asyncio.run(import_jobs_routes.list_import_jobs(limit=100))
+    response = asyncio.run(
+        import_jobs_routes.list_import_jobs(
+            current_user=CURRENT_USER,
+            session=object(),
+            limit=100,
+        )
+    )
 
     assert repository.recent_limit == 50
     assert [job.job_id for job in response] == ["job_1", "job_2"]

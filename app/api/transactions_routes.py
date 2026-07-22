@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.auth import CurrentUser
 from app.config import settings
 from app.db.models import ExpenseCategory, Transaction
 from app.db.repositories.transactions import (
@@ -17,14 +18,26 @@ from app.db.session import get_session
 transactions_router = APIRouter(prefix="/transactions")
 
 _transaction_repository = TransactionRepository()
+PROTECTED_CREATE_FIELDS = {"account_id", "import_job_id", "source_import_id", "user_id"}
 
 
 class TransactionsBulkCreatePayload(BaseModel):
     transactions: list[Transaction] = Field(min_length=1)
 
 
+def _reject_internal_create_fields(payload: Transaction) -> None:
+    forbidden = PROTECTED_CREATE_FIELDS & payload.model_fields_set
+    if forbidden:
+        field_list = ", ".join(sorted(forbidden))
+        raise HTTPException(
+            status_code=422,
+            detail=f"Cannot set protected fields: {field_list}",
+        )
+
+
 @transactions_router.get("")
 async def list_transactions(
+    current_user: CurrentUser,
     session: Session = Depends(get_session),
     category: ExpenseCategory | None = None,
     date_from: date | None = None,
@@ -36,7 +49,7 @@ async def list_transactions(
 ) -> dict[str, object]:
     transaction_schemas, total = _transaction_repository.list_filtered(
         session,
-        user_id=settings.default_user_id,
+        user_id=current_user.id,
         category=category,
         date_from=date_from,
         date_to=date_to,
@@ -55,14 +68,16 @@ async def list_transactions(
 
 @transactions_router.post("", response_model=Transaction, status_code=201)
 async def create_transaction(
+    current_user: CurrentUser,
     payload: Transaction,
     session: Session = Depends(get_session),
 ) -> Transaction:
+    _reject_internal_create_fields(payload)
     try:
         stored_transaction_schema = _transaction_repository.create(
             session,
             payload,
-            default_user_id=settings.default_user_id,
+            user_id=current_user.id,
             default_account_id=settings.default_account_id,
         )
     except ValueError as error:
@@ -73,14 +88,17 @@ async def create_transaction(
 
 @transactions_router.post("/bulk", response_model=list[Transaction], status_code=201)
 async def bulk_create_transactions(
+    current_user: CurrentUser,
     payload: TransactionsBulkCreatePayload,
     session: Session = Depends(get_session),
 ) -> list[Transaction]:
+    for transaction in payload.transactions:
+        _reject_internal_create_fields(transaction)
     try:
         created_transaction_schemas = _transaction_repository.create_many(
             session,
             payload.transactions,
-            default_user_id=settings.default_user_id,
+            user_id=current_user.id,
             default_account_id=settings.default_account_id,
         )
     except ValueError as error:
@@ -95,11 +113,12 @@ async def bulk_create_transactions(
 @transactions_router.get("/{transaction_id}", response_model=Transaction)
 async def get_transaction(
     transaction_id: str,
+    current_user: CurrentUser,
     session: Session = Depends(get_session),
 ) -> Transaction:
     stored_transaction_schema = _transaction_repository.get_by_id(
         session,
-        user_id=settings.default_user_id,
+        user_id=current_user.id,
         transaction_id=transaction_id,
     )
     if stored_transaction_schema is None:
@@ -111,13 +130,14 @@ async def get_transaction(
 @transactions_router.patch("/{transaction_id}", response_model=Transaction)
 async def update_transaction(
     transaction_id: str,
+    current_user: CurrentUser,
     payload: Transaction,
     session: Session = Depends(get_session),
 ) -> Transaction:
     try:
         stored_transaction_schema = _transaction_repository.update(
             session,
-            user_id=settings.default_user_id,
+            user_id=current_user.id,
             transaction_id=transaction_id,
             payload=payload,
         )
@@ -132,11 +152,12 @@ async def update_transaction(
 @transactions_router.delete("/{transaction_id}")
 async def delete_transaction(
     transaction_id: str,
+    current_user: CurrentUser,
     session: Session = Depends(get_session),
 ) -> dict[str, str]:
     deleted = _transaction_repository.delete_by_id(
         session,
-        user_id=settings.default_user_id,
+        user_id=current_user.id,
         transaction_id=transaction_id,
     )
     if not deleted:

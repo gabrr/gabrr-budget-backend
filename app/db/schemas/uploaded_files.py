@@ -3,7 +3,7 @@ from __future__ import annotations
 from sqlalchemy import ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base, TimestampMixin, new_id
+from app.db.base import Base, TimestampMixin, UserId, new_id
 
 
 class UploadedFileSchema(TimestampMixin, Base):
@@ -14,7 +14,11 @@ class UploadedFileSchema(TimestampMixin, Base):
         primary_key=True,
         default=lambda: new_id("file"),
     )
-    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    user_id: Mapped[str] = mapped_column(
+        UserId(),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
     content_type: Mapped[str | None] = mapped_column(String(120))
     size_bytes: Mapped[int | None]

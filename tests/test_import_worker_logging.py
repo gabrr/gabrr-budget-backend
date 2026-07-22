@@ -141,6 +141,7 @@ def test_process_job_logs_successful_agent_parse_and_save(caplog, monkeypatch) -
     monkeypatch.setattr(worker, "SessionLocal", fake_session_local)
     monkeypatch.setattr(worker, "_import_job_repository", ProcessJobRepository())
     monkeypatch.setattr(worker, "create_agent_gateway", lambda: FakeGateway())
+    monkeypatch.setattr(worker, "_read_pdf_bytes", lambda path: b"%PDF-test")
     monkeypatch.setattr(worker, "parse_agent_result_for_persistence", fake_parse)
     monkeypatch.setattr(worker, "save_parsed_import_result", fake_save)
 
@@ -165,6 +166,7 @@ def test_process_job_logs_failure_with_phase_attempt_and_worker(caplog, monkeypa
     monkeypatch.setattr(worker, "SessionLocal", fake_session_local)
     monkeypatch.setattr(worker, "_import_job_repository", repository)
     monkeypatch.setattr(worker, "create_agent_gateway", lambda: FailingGateway())
+    monkeypatch.setattr(worker, "_read_pdf_bytes", lambda path: b"%PDF-test")
 
     caplog.set_level(logging.ERROR, logger=worker.logger.name)
     asyncio.run(worker.process_job("job_1", worker_id="worker-1", attempt=2))

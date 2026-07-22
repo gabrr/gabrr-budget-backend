@@ -11,7 +11,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.auth import get_current_user
 from app.db.models.transaction import Transaction
+from app.db.repositories.transactions import TransactionRepository
 from app.db.schemas import Base
 from app.db.schemas.accounts import AccountSchema
 from app.db.schemas.categories import CategorySchema
@@ -47,6 +49,11 @@ def client_session() -> Generator[tuple[TestClient, sessionmaker[Session]], None
             db.close()
 
     app.dependency_overrides[get_session] = override_get_session
+    app.dependency_overrides[get_current_user] = lambda: UserSchema(
+        id="gabe",
+        email="gabe@example.test",
+        display_name="Gabe",
+    )
     try:
         yield TestClient(app), SessionLocal
     finally:
@@ -152,6 +159,19 @@ def test_patch_rejects_direct_protected_fields(
     assert "classification_source" in response.json()["detail"]
 
 
+@pytest.mark.parametrize("field", ["user_id", "account_id", "source_import_id"])
+def test_patch_rejects_direct_ownership_fields(
+    client_session: tuple[TestClient, sessionmaker[Session]],
+    field: str,
+) -> None:
+    client, _ = client_session
+
+    response = client.patch("/transactions/tx_correction", json={field: "other"})
+
+    assert response.status_code == 422
+    assert field in response.json()["detail"]
+
+
 def test_patch_rejects_unauthorized_category(
     client_session: tuple[TestClient, sessionmaker[Session]],
 ) -> None:
@@ -164,6 +184,52 @@ def test_patch_rejects_unauthorized_category(
 
     assert response.status_code == 422
     assert response.json()["detail"] == "category_id is not available to this user"
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["user_id", "account_id", "source_import_id", "import_job_id"],
+)
+def test_create_rejects_internal_ownership_fields(
+    client_session: tuple[TestClient, sessionmaker[Session]],
+    field: str,
+) -> None:
+    client, _ = client_session
+
+    response = client.post(
+        "/transactions",
+        json={
+            "date": "2026-05-20",
+            "description": "Manual transaction",
+            "amount": "-10.00",
+            field: "forged",
+        },
+    )
+
+    assert response.status_code == 422
+    assert field in response.json()["detail"]
+
+
+def test_create_rejects_unauthorized_category(
+    client_session: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    _, SessionLocal = client_session
+
+    with SessionLocal() as session, pytest.raises(
+        ValueError,
+        match="category_id is not available to this user",
+    ):
+        TransactionRepository().create(
+            session,
+            Transaction(
+                date=date(2026, 5, 20),
+                description="Manual transaction",
+                amount=Decimal("-10.00"),
+                category_id="cat_other_user",
+            ),
+            user_id="gabe",
+            default_account_id="acct_demo_checking",
+        )
 
 
 def test_transaction_model_rejects_string_is_draft() -> None:

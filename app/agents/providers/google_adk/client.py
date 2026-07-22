@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -35,12 +36,38 @@ class GoogleAdkClient:
 
         return adk_session_id
 
-    def _run_payload(self, *, user_id: str, session_id: str, prompt: str) -> dict[str, Any]:
+    async def delete_session(self, *, user_id: str, session_id: str) -> None:
+        response = await self._client.delete(
+            f"{self._base_url}/apps/{self._app_name}/users/{user_id}/sessions/{session_id}"
+        )
+        response.raise_for_status()
+
+    def _run_payload(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        prompt: str,
+        pdf_bytes: bytes | None = None,
+        filename: str | None = None,
+    ) -> dict[str, Any]:
+        parts: list[dict[str, Any]] = [{"text": prompt}]
+        if pdf_bytes is not None:
+            parts.append(
+                {
+                    "inlineData": {
+                        "displayName": filename or "statement.pdf",
+                        "mimeType": "application/pdf",
+                        "data": base64.b64encode(pdf_bytes).decode("ascii"),
+                    }
+                }
+            )
+
         return {
-            "app_name": self._app_name,
-            "user_id": user_id,
-            "session_id": session_id,
-            "new_message": {"role": "user", "parts": [{"text": prompt}]},
+            "appName": self._app_name,
+            "userId": user_id,
+            "sessionId": session_id,
+            "newMessage": {"role": "user", "parts": parts},
         }
 
     async def run(self, *, user_id: str, session_id: str, prompt: str) -> str:
@@ -62,9 +89,17 @@ class GoogleAdkClient:
         user_id: str,
         session_id: str,
         prompt: str,
+        pdf_bytes: bytes | None = None,
+        filename: str | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         payload = {
-            **self._run_payload(user_id=user_id, session_id=session_id, prompt=prompt),
+            **self._run_payload(
+                user_id=user_id,
+                session_id=session_id,
+                prompt=prompt,
+                pdf_bytes=pdf_bytes,
+                filename=filename,
+            ),
             "streaming": True,
         }
 
@@ -75,4 +110,3 @@ class GoogleAdkClient:
                 event = google_adk_event_from_sse_line(line)
                 if event is not None:
                     yield event
-

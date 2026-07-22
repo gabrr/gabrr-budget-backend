@@ -6,7 +6,7 @@ from decimal import Decimal
 from sqlalchemy import CheckConstraint, Date, DateTime, ForeignKey, Index, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base, TimestampMixin, new_id
+from app.db.base import Base, TimestampMixin, UserId, new_id
 
 
 class TransactionSchema(TimestampMixin, Base):
@@ -17,7 +17,11 @@ class TransactionSchema(TimestampMixin, Base):
         primary_key=True,
         default=lambda: new_id("tx"),
     )
-    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    user_id: Mapped[str] = mapped_column(
+        UserId(),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     account_id: Mapped[str] = mapped_column(ForeignKey("accounts.id"), nullable=False)
     category_id: Mapped[str | None] = mapped_column(ForeignKey("categories.id"))
     source_import_id: Mapped[str | None] = mapped_column(ForeignKey("imports.id"))

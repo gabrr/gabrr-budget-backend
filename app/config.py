@@ -23,9 +23,13 @@ class Settings(BaseSettings):
     database_url: str
     app_env: Literal["local", "production"] = "local"
     cors_origins: str = LOCAL_CORS_ORIGINS
-    default_user_id: str = "gabe"
     default_account_id: str = "acct_demo_checking"
     max_file_upload_mb: int = Field(default=20, ge=1, le=512)
+
+    # Supabase Auth settings used to authenticate browser requests.
+    supabase_url: str = "https://bptkqiftccwgsmwlpahv.supabase.co"
+    supabase_jwt_audience: str = "authenticated"
+    allowed_user_email: str = "g.webdevelopr@gmail.com"
 
     # Remote agent settings used by the backend Agent Gateway.
     agent_base_url: str = "http://127.0.0.1:8001"
@@ -47,13 +51,27 @@ class Settings(BaseSettings):
     def max_file_upload_bytes(self) -> int:
         return self.max_file_upload_mb * 1024 * 1024
 
+    @property
+    def supabase_jwt_issuer(self) -> str:
+        return f"{self.supabase_url.rstrip('/')}/auth/v1"
+
+    @property
+    def supabase_jwks_url(self) -> str:
+        return f"{self.supabase_jwt_issuer}/.well-known/jwks.json"
+
     @model_validator(mode="after")
-    def require_production_cors_origins(self) -> "Settings":
+    def require_production_configuration(self) -> "Settings":
         if self.app_env != "production":
             return self
 
         if "cors_origins" not in self.model_fields_set or not self.parsed_cors_origins:
             raise ValueError("CORS_ORIGINS must be explicitly configured in production")
+
+        if "supabase_url" not in self.model_fields_set or not self.supabase_url.strip():
+            raise ValueError("SUPABASE_URL must be explicitly configured in production")
+
+        if "allowed_user_email" not in self.model_fields_set or not self.allowed_user_email.strip():
+            raise ValueError("ALLOWED_USER_EMAIL must be explicitly configured in production")
 
         return self
 

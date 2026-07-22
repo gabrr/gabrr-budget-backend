@@ -5,7 +5,7 @@ from datetime import datetime
 from sqlalchemy import DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base, TimestampMixin, new_id
+from app.db.base import Base, TimestampMixin, UserId, new_id
 
 
 class ImportSchema(TimestampMixin, Base):
@@ -16,7 +16,11 @@ class ImportSchema(TimestampMixin, Base):
         primary_key=True,
         default=lambda: new_id("imp"),
     )
-    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    user_id: Mapped[str] = mapped_column(
+        UserId(),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     uploaded_file_id: Mapped[str] = mapped_column(
         ForeignKey("uploaded_files.id"),
         nullable=False,

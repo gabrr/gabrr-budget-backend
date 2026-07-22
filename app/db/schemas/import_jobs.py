@@ -16,7 +16,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.db.base import Base, TimestampMixin, new_id
+from app.db.base import Base, TimestampMixin, UserId, new_id
 
 
 class ImportJobSchema(TimestampMixin, Base):
@@ -27,7 +27,11 @@ class ImportJobSchema(TimestampMixin, Base):
         primary_key=True,
         default=lambda: new_id("job"),
     )
-    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    user_id: Mapped[str] = mapped_column(
+        UserId(),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     status: Mapped[str] = mapped_column(String(40), default="pending", nullable=False)
     current_step: Mapped[str | None] = mapped_column(String(120))
     source_type: Mapped[str] = mapped_column(String(40), default="pdf", nullable=False)

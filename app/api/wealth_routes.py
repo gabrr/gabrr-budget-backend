@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 
-from app.config import settings
+from app.auth import CurrentUser
 from app.db.models.wealth import (
     WealthCheckpoint,
     WealthCheckpointCreate,
@@ -20,13 +20,14 @@ _wealth_repository = WealthRepository()
 
 @wealth_router.post("/checkpoints", response_model=WealthCheckpoint, status_code=201)
 async def create_wealth_checkpoint(
+    current_user: CurrentUser,
     payload: WealthCheckpointCreate,
     session: Session = Depends(get_session),
 ) -> WealthCheckpoint:
     try:
         row = _wealth_repository.create_checkpoint(
             session,
-            user_id=settings.default_user_id,
+            user_id=current_user.id,
             payload=payload,
         )
     except ValueError as error:
@@ -37,12 +38,13 @@ async def create_wealth_checkpoint(
 
 @wealth_router.get("/checkpoints", response_model=WealthCheckpointList)
 async def list_wealth_checkpoints(
+    current_user: CurrentUser,
     session: Session = Depends(get_session),
     currency: str | None = Query(default=None, min_length=3, max_length=3),
 ) -> WealthCheckpointList:
     rows = _wealth_repository.list_checkpoints(
         session,
-        user_id=settings.default_user_id,
+        user_id=current_user.id,
         currency=currency.upper() if currency is not None else None,
     )
 
@@ -54,11 +56,12 @@ async def list_wealth_checkpoints(
 @wealth_router.delete("/checkpoints/{checkpoint_id}", status_code=204)
 async def delete_wealth_checkpoint(
     checkpoint_id: str,
+    current_user: CurrentUser,
     session: Session = Depends(get_session),
 ) -> Response:
     deleted = _wealth_repository.delete_checkpoint(
         session,
-        user_id=settings.default_user_id,
+        user_id=current_user.id,
         checkpoint_id=checkpoint_id,
     )
     if not deleted:
@@ -69,21 +72,23 @@ async def delete_wealth_checkpoint(
 
 @wealth_router.get("/projection-settings", response_model=WealthProjectionSettings)
 async def get_projection_settings(
+    current_user: CurrentUser,
     session: Session = Depends(get_session),
 ) -> WealthProjectionSettings:
     return _wealth_repository.get_projection_settings(
         session,
-        user_id=settings.default_user_id,
+        user_id=current_user.id,
     )
 
 
 @wealth_router.put("/projection-settings", response_model=WealthProjectionSettings)
 async def upsert_projection_settings(
+    current_user: CurrentUser,
     payload: WealthProjectionSettingsUpdate,
     session: Session = Depends(get_session),
 ) -> WealthProjectionSettings:
     return _wealth_repository.upsert_projection_settings(
         session,
-        user_id=settings.default_user_id,
+        user_id=current_user.id,
         payload=payload,
     )

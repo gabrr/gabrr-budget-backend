@@ -3,7 +3,7 @@ from __future__ import annotations
 from sqlalchemy import ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base, TimestampMixin, new_id
+from app.db.base import Base, TimestampMixin, UserId, new_id
 
 
 class CategorySchema(TimestampMixin, Base):
@@ -15,7 +15,10 @@ class CategorySchema(TimestampMixin, Base):
         primary_key=True,
         default=lambda: new_id("cat"),
     )
-    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    user_id: Mapped[str | None] = mapped_column(
+        UserId(),
+        ForeignKey("users.id", ondelete="CASCADE"),
+    )
     key: Mapped[str] = mapped_column(String(80), nullable=False)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     is_system: Mapped[bool] = mapped_column(default=False, nullable=False)

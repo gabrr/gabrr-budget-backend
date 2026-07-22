@@ -6,7 +6,7 @@ from decimal import Decimal
 from sqlalchemy import Date, ForeignKey, Index, Numeric, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base, TimestampMixin, new_id
+from app.db.base import Base, TimestampMixin, UserId, new_id
 
 
 class WealthCheckpointSchema(TimestampMixin, Base):
@@ -17,7 +17,11 @@ class WealthCheckpointSchema(TimestampMixin, Base):
         primary_key=True,
         default=lambda: new_id("wch"),
     )
-    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    user_id: Mapped[str] = mapped_column(
+        UserId(),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     checkpoint_date: Mapped[date] = mapped_column(Date, nullable=False)
     wealth_amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
     currency: Mapped[str] = mapped_column(String(3), default="BRL", nullable=False)
@@ -43,7 +47,12 @@ class WealthProjectionSettingsSchema(TimestampMixin, Base):
         primary_key=True,
         default=lambda: new_id("wps"),
     )
-    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False, unique=True)
+    user_id: Mapped[str] = mapped_column(
+        UserId(),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
     average_annual_return_multiplier: Mapped[Decimal] = mapped_column(
         Numeric(10, 4),
         default=Decimal("1.0000"),
