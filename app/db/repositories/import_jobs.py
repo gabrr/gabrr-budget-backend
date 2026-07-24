@@ -156,6 +156,42 @@ class ImportJobRepository:
 
         return self.get_by_id(session, job_id=claimed_id)
 
+    def claim_by_id(
+        self,
+        session: Session,
+        *,
+        job_id: str,
+        worker_id: str,
+        max_attempts: int = 100,
+    ) -> ImportJobSchema | None:
+        now = datetime.now(UTC)
+        result = session.execute(
+            update(ImportJobSchema)
+            .where(
+                ImportJobSchema.id == job_id,
+                ImportJobSchema.status == "pending",
+                ImportJobSchema.attempts < max_attempts,
+            )
+            .values(
+                status="processing",
+                current_step="Processing started",
+                attempts=ImportJobSchema.attempts + 1,
+                locked_by=worker_id,
+                locked_at=now,
+                started_at=case(
+                    (ImportJobSchema.started_at.is_(None), now),
+                    else_=ImportJobSchema.started_at,
+                ),
+                error_message=None,
+            )
+            .returning(ImportJobSchema.id)
+        )
+        claimed_id = result.scalar_one_or_none()
+        if claimed_id is None:
+            return None
+
+        return self.get_by_id(session, job_id=claimed_id)
+
     def mark_step(
         self,
         session: Session,
@@ -248,6 +284,26 @@ class ImportJobRepository:
                 locked_by=None,
                 locked_at=None,
                 finished_at=now,
+                error_message=error_message[:1000],
+            )
+        )
+
+    def mark_pending_for_retry(
+        self,
+        session: Session,
+        job_id: str,
+        *,
+        error_message: str,
+    ) -> None:
+        session.execute(
+            update(ImportJobSchema)
+            .where(ImportJobSchema.id == job_id)
+            .values(
+                status="pending",
+                current_step="Waiting to retry",
+                locked_by=None,
+                locked_at=None,
+                finished_at=None,
                 error_message=error_message[:1000],
             )
         )

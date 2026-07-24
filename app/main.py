@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import router as api_router
+from app.api.internal_tasks_routes import internal_tasks_router
 from app.auth.supabase import SupabaseTokenVerifier
 from app.config import Settings, settings
 from app.logging_config import configure_logging
@@ -37,6 +38,7 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
         return {"status": "ok"}
 
     app.include_router(api_router)
+    app.include_router(internal_tasks_router)
 
     return app
 

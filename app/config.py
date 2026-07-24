@@ -26,6 +26,17 @@ class Settings(BaseSettings):
     default_account_id: str = "acct_demo_checking"
     max_file_upload_mb: int = Field(default=20, ge=1, le=512)
 
+    # Import storage and asynchronous dispatch settings.
+    file_storage_backend: Literal["local", "gcs"] = "local"
+    gcs_bucket_name: str = ""
+    cloud_tasks_mode: Literal["none", "google"] = "none"
+    google_cloud_project: str = ""
+    cloud_tasks_location: str = "us-east4"
+    cloud_tasks_queue: str = "gabrr-imports"
+    cloud_tasks_max_attempts: int = Field(default=3, ge=1, le=100)
+    cloud_tasks_invoker_email: str = ""
+    backend_base_url: str = "http://127.0.0.1:8000"
+
     # Supabase Auth settings used to authenticate browser requests.
     supabase_url: str = "https://bptkqiftccwgsmwlpahv.supabase.co"
     supabase_jwt_audience: str = "authenticated"
@@ -72,6 +83,25 @@ class Settings(BaseSettings):
 
         if "allowed_user_email" not in self.model_fields_set or not self.allowed_user_email.strip():
             raise ValueError("ALLOWED_USER_EMAIL must be explicitly configured in production")
+
+        if self.file_storage_backend == "gcs" and not self.gcs_bucket_name.strip():
+            raise ValueError("GCS_BUCKET_NAME is required when FILE_STORAGE_BACKEND=gcs")
+
+        if self.cloud_tasks_mode == "google":
+            if self.file_storage_backend != "gcs":
+                raise ValueError("FILE_STORAGE_BACKEND must be gcs when CLOUD_TASKS_MODE=google")
+            required_task_settings = {
+                "GOOGLE_CLOUD_PROJECT": self.google_cloud_project,
+                "CLOUD_TASKS_INVOKER_EMAIL": self.cloud_tasks_invoker_email,
+                "BACKEND_BASE_URL": self.backend_base_url,
+            }
+            missing = [name for name, value in required_task_settings.items() if not value.strip()]
+            if missing:
+                raise ValueError(
+                    f"{', '.join(missing)} must be configured when CLOUD_TASKS_MODE=google"
+                )
+            if not self.backend_base_url.startswith("https://"):
+                raise ValueError("BACKEND_BASE_URL must use HTTPS when CLOUD_TASKS_MODE=google")
 
         return self
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import UTC, datetime
 from io import BytesIO
 
@@ -69,8 +70,19 @@ class FakeFileSystemService:
     async def save(self, uploaded_bytes: bytes, **values: object) -> str:
         return "/tmp/request-scoped.pdf"
 
-    def delete_if_exists(self, path: str) -> None:
+    async def delete_if_exists(self, path: str) -> None:
         self.deleted_paths.append(path)
+
+
+class FakeCloudTasksService:
+    instances: list[FakeCloudTasksService] = []
+
+    def __init__(self, settings: object) -> None:
+        self.enqueued_job_ids: list[str] = []
+        self.__class__.instances.append(self)
+
+    async def enqueue_import(self, job_id: str, *, attempt: int = 0) -> None:
+        self.enqueued_job_ids.append(job_id)
 
 
 def _upload() -> UploadFile:
@@ -81,23 +93,19 @@ def _upload() -> UploadFile:
     )
 
 
-def test_process_file_completes_job_before_returning(monkeypatch) -> None:
+def test_process_file_enqueues_job_and_returns_accepted(monkeypatch) -> None:
     repository = FakeImportJobRepository()
     session = FakeSession()
-    processed_job_ids: list[str] = []
     FakeFileSystemService.instances.clear()
-
-    async def process_job(job_id: str, *, worker_id: str | None = None) -> None:
-        processed_job_ids.append(job_id)
-        assert repository.job is not None
-        repository.job.status = "done"
-        repository.job.current_step = "Draft transactions saved"
-        repository.job.updated_at = datetime.now(UTC)
-        repository.job.finished_at = datetime.now(UTC)
+    FakeCloudTasksService.instances.clear()
 
     monkeypatch.setattr(agents_routes, "_import_job_repository", repository)
-    monkeypatch.setattr(agents_routes, "FileSystemService", FakeFileSystemService)
-    monkeypatch.setattr(agents_routes, "process_job", process_job)
+    monkeypatch.setattr(
+        agents_routes,
+        "create_file_storage_service",
+        lambda settings: FakeFileSystemService(),
+    )
+    monkeypatch.setattr(agents_routes, "CloudTasksService", FakeCloudTasksService)
 
     response = asyncio.run(
         agents_routes.agent_process_file(
@@ -112,13 +120,12 @@ def test_process_file_completes_job_before_returning(monkeypatch) -> None:
         )
     )
 
-    assert response.status == "done"
-    assert processed_job_ids == ["job_test"]
+    assert response.status_code == 202
+    assert json.loads(response.body)["status"] == "pending"
+    assert FakeCloudTasksService.instances[0].enqueued_job_ids == ["job_test"]
     assert session.commit_count == 1
-    assert session.expire_count == 1
-    assert FakeFileSystemService.instances[0].deleted_paths == [
-        "/tmp/request-scoped.pdf"
-    ]
+    assert session.expire_count == 0
+    assert FakeFileSystemService.instances[0].deleted_paths == []
 
 
 def test_process_file_reuses_completed_idempotent_job(monkeypatch) -> None:
@@ -139,13 +146,7 @@ def test_process_file_reuses_completed_idempotent_job(monkeypatch) -> None:
         finished_at=now,
     )
     repository = FakeImportJobRepository(existing_job)
-    process_calls: list[str] = []
-
-    async def process_job(job_id: str, *, worker_id: str | None = None) -> None:
-        process_calls.append(job_id)
-
     monkeypatch.setattr(agents_routes, "_import_job_repository", repository)
-    monkeypatch.setattr(agents_routes, "process_job", process_job)
 
     response = asyncio.run(
         agents_routes.agent_process_file(
@@ -161,4 +162,3 @@ def test_process_file_reuses_completed_idempotent_job(monkeypatch) -> None:
     )
 
     assert response.status_code == 200
-    assert process_calls == []

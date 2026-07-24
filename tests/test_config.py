@@ -138,3 +138,32 @@ def test_disallowed_origin_receives_no_cors_permission() -> None:
 
     assert response.status_code == 400
     assert "access-control-allow-origin" not in response.headers
+
+
+def test_internal_task_route_requires_cloud_task_identity() -> None:
+    client = TestClient(
+        create_app(
+            create_settings(
+                app_env="production",
+                cors_origins=VERCEL_ORIGIN,
+                file_storage_backend="gcs",
+                gcs_bucket_name="private-imports",
+                cloud_tasks_mode="google",
+                google_cloud_project="test-project",
+                cloud_tasks_invoker_email="tasks@test-project.iam.gserviceaccount.com",
+                backend_base_url="https://backend.test",
+            )
+        )
+    )
+
+    response = client.post("/internal/import-jobs/job_test/process")
+
+    assert response.status_code == 401
+
+
+def test_internal_task_route_is_disabled_without_cloud_tasks() -> None:
+    client = TestClient(create_app(create_settings()))
+
+    response = client.post("/internal/import-jobs/job_test/process")
+
+    assert response.status_code == 503

@@ -94,16 +94,13 @@ class GoogleAdkAgentGateway:
                     except httpx.HTTPError as cleanup_error:
                         logger.warning("Google ADK session cleanup failed: %s", cleanup_error)
 
-        except httpx.HTTPError as http_error:
-            logger.warning("Google ADK HTTP error: %s", http_error)
-            return agent_error_result()
+        except httpx.HTTPError:
+            logger.exception("Google ADK transport failure")
+            raise
 
         parsed = parse_last_json_object("".join(text_parts))
         if parsed is None:
-            logger.warning(
-                "Google ADK returned invalid or non-object JSON (truncated): %s",
-                "".join(text_parts)[:500],
-            )
+            logger.warning("Google ADK returned invalid or non-object JSON")
             return agent_error_result()
 
         return agent_success_result(parsed)

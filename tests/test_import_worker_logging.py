@@ -36,6 +36,7 @@ def fake_job(**overrides: object) -> SimpleNamespace:
         "original_filename": "example.pdf",
         "size_bytes": 1234,
         "created_at": datetime(2026, 5, 28, tzinfo=UTC),
+        "locked_by": "worker-1",
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -58,6 +59,7 @@ class ProcessJobRepository:
     def __init__(self, job: SimpleNamespace | None = None) -> None:
         self.job = job or fake_job()
         self.failed = False
+        self.pending_for_retry = False
 
     def get_by_id(self, session: FakeSession, *, job_id: str) -> SimpleNamespace:
         return self.job
@@ -86,6 +88,26 @@ class ProcessJobRepository:
     def mark_failed(self, session: FakeSession, job_id: str, *, error_message: str) -> None:
         self.failed = True
 
+    def mark_pending_for_retry(
+        self,
+        session: FakeSession,
+        job_id: str,
+        *,
+        error_message: str,
+    ) -> None:
+        self.pending_for_retry = True
+
+
+class FakeFileStorage:
+    def __init__(self) -> None:
+        self.deleted_paths: list[str] = []
+
+    async def read(self, storage_path: str) -> bytes:
+        return b"%PDF-test"
+
+    async def delete_if_exists(self, storage_path: str) -> None:
+        self.deleted_paths.append(storage_path)
+
 
 def log_text(caplog) -> str:
     return "\n".join(record.getMessage() for record in caplog.records)
@@ -110,7 +132,13 @@ def test_run_worker_logs_startup_and_idle_only_at_debug(caplog, monkeypatch) -> 
 
 
 def test_run_worker_logs_claimed_job(caplog, monkeypatch) -> None:
-    async def fake_process_job(job_id: str, *, worker_id: str | None, attempt: int | None) -> None:
+    async def fake_process_job(
+        job_id: str,
+        *,
+        worker_id: str | None,
+        attempt: int | None,
+        final_attempt: bool,
+    ) -> None:
         return None
 
     monkeypatch.setattr(worker, "SessionLocal", fake_session_local)
@@ -141,7 +169,11 @@ def test_process_job_logs_successful_agent_parse_and_save(caplog, monkeypatch) -
     monkeypatch.setattr(worker, "SessionLocal", fake_session_local)
     monkeypatch.setattr(worker, "_import_job_repository", ProcessJobRepository())
     monkeypatch.setattr(worker, "create_agent_gateway", lambda: FakeGateway())
-    monkeypatch.setattr(worker, "_read_pdf_bytes", lambda path: b"%PDF-test")
+    monkeypatch.setattr(
+        worker,
+        "create_file_storage_service",
+        lambda settings: FakeFileStorage(),
+    )
     monkeypatch.setattr(worker, "parse_agent_result_for_persistence", fake_parse)
     monkeypatch.setattr(worker, "save_parsed_import_result", fake_save)
 
@@ -166,7 +198,11 @@ def test_process_job_logs_failure_with_phase_attempt_and_worker(caplog, monkeypa
     monkeypatch.setattr(worker, "SessionLocal", fake_session_local)
     monkeypatch.setattr(worker, "_import_job_repository", repository)
     monkeypatch.setattr(worker, "create_agent_gateway", lambda: FailingGateway())
-    monkeypatch.setattr(worker, "_read_pdf_bytes", lambda path: b"%PDF-test")
+    monkeypatch.setattr(
+        worker,
+        "create_file_storage_service",
+        lambda settings: FakeFileStorage(),
+    )
 
     caplog.set_level(logging.ERROR, logger=worker.logger.name)
     asyncio.run(worker.process_job("job_1", worker_id="worker-1", attempt=2))
@@ -174,3 +210,74 @@ def test_process_job_logs_failure_with_phase_attempt_and_worker(caplog, monkeypa
     messages = log_text(caplog)
     assert repository.failed is True
     assert "job_failed job_id=job_1 worker_id=worker-1 phase=agent_extract attempt=2" in messages
+
+
+def test_process_job_marks_retryable_failure_pending(monkeypatch) -> None:
+    class FailingGateway:
+        async def extract_statement_transactions(self, *args: object, **kwargs: object):
+            raise RuntimeError("agent unavailable")
+
+    repository = ProcessJobRepository()
+    monkeypatch.setattr(worker, "SessionLocal", fake_session_local)
+    monkeypatch.setattr(worker, "_import_job_repository", repository)
+    monkeypatch.setattr(worker, "create_agent_gateway", lambda: FailingGateway())
+    monkeypatch.setattr(
+        worker,
+        "create_file_storage_service",
+        lambda settings: FakeFileStorage(),
+    )
+
+    outcome = asyncio.run(
+        worker.process_job("job_1", worker_id="worker-1", attempt=1)
+    )
+
+    assert outcome == "retry"
+    assert repository.pending_for_retry is True
+    assert repository.failed is False
+
+
+def test_process_job_marks_exhausted_retry_failed(monkeypatch) -> None:
+    class FailingGateway:
+        async def extract_statement_transactions(self, *args: object, **kwargs: object):
+            raise RuntimeError("agent unavailable")
+
+    repository = ProcessJobRepository()
+    monkeypatch.setattr(worker, "SessionLocal", fake_session_local)
+    monkeypatch.setattr(worker, "_import_job_repository", repository)
+    monkeypatch.setattr(worker, "create_agent_gateway", lambda: FailingGateway())
+    monkeypatch.setattr(
+        worker,
+        "create_file_storage_service",
+        lambda settings: FakeFileStorage(),
+    )
+
+    outcome = asyncio.run(
+        worker.process_job(
+            "job_1",
+            worker_id="worker-1",
+            attempt=3,
+            final_attempt=True,
+        )
+    )
+
+    assert outcome == "done"
+    assert repository.failed is True
+    assert repository.pending_for_retry is False
+
+
+def test_process_job_closes_interrupted_job_on_final_delivery(monkeypatch) -> None:
+    repository = ProcessJobRepository(fake_job(locked_by="dead-worker"))
+    monkeypatch.setattr(worker, "SessionLocal", fake_session_local)
+    monkeypatch.setattr(worker, "_import_job_repository", repository)
+
+    outcome = asyncio.run(
+        worker.process_job(
+            "job_1",
+            worker_id="replacement-delivery",
+            attempt=3,
+            final_attempt=True,
+        )
+    )
+
+    assert outcome == "done"
+    assert repository.failed is True
