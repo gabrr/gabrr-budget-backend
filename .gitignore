@@ -17,3 +17,10 @@ file_examples/**/*
 md_files/**/*
 exports/**/*
 data/uploads/
+
+# Agent runtime session and state databases
+**/.adk/
+**/session.db
+**/session.db-*
+**/state.db
+**/state.db-*
