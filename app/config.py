@@ -22,6 +22,8 @@ class Settings(BaseSettings):
 
     database_url: str
     app_env: Literal["local", "production"] = "local"
+    auth_mode: Literal["local", "supabase"] = "supabase"
+    local_user_email: str = "gabe@example.test"
     cors_origins: str = LOCAL_CORS_ORIGINS
     default_account_id: str = "acct_demo_checking"
     max_file_upload_mb: int = Field(default=20, ge=1, le=512)
@@ -74,6 +76,9 @@ class Settings(BaseSettings):
     def require_production_configuration(self) -> "Settings":
         if self.app_env != "production":
             return self
+
+        if self.auth_mode != "supabase":
+            raise ValueError("AUTH_MODE must be supabase in production")
 
         if "cors_origins" not in self.model_fields_set or not self.parsed_cors_origins:
             raise ValueError("CORS_ORIGINS must be explicitly configured in production")
