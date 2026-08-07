@@ -1,4 +1,5 @@
 from typing import Literal
+import os
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -11,6 +12,16 @@ LOCAL_CORS_ORIGINS = ",".join(
         "http://127.0.0.1:3001",
     ]
 )
+
+
+def parse_cors_origins(raw_origins: str | None) -> list[str]:
+    return list(
+        dict.fromkeys(
+            origin.strip()
+            for origin in (raw_origins or LOCAL_CORS_ORIGINS).split(",")
+            if origin.strip()
+        )
+    )
 
 
 class Settings(BaseSettings):
@@ -52,13 +63,7 @@ class Settings(BaseSettings):
 
     @property
     def parsed_cors_origins(self) -> list[str]:
-        return list(
-            dict.fromkeys(
-                origin.strip()
-                for origin in self.cors_origins.split(",")
-                if origin.strip()
-            )
-        )
+        return parse_cors_origins(os.getenv("CORS_ORIGINS", self.cors_origins))
 
     @property
     def max_file_upload_bytes(self) -> int:
