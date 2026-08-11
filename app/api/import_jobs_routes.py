@@ -9,13 +9,17 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.auth import CurrentUser
+from app.config import settings
 from app.db.models.import_jobs import ImportJobPublic
 from app.db.repositories.import_jobs import ImportJobRepository
+from app.db.repositories.transactions import TransactionRepository
 from app.db.schemas.import_jobs import ImportJobSchema
 from app.db.session import SessionLocal, get_session
+from app.services.file_storage_service import create_file_storage_service
 
 import_jobs_router = APIRouter(prefix="/import-jobs", tags=["import-jobs"])
 _import_job_repository = ImportJobRepository()
+_transaction_repository = TransactionRepository()
 
 
 def import_job_event_key(job: ImportJobSchema) -> tuple[str, str | None, str | None, datetime | None]:
@@ -90,6 +94,34 @@ async def get_import_job(
         raise HTTPException(status_code=404, detail="Import job not found")
 
     return import_job_to_public(job)
+
+
+@import_jobs_router.delete("/{job_id}", status_code=204)
+async def delete_import_job(
+    job_id: str,
+    current_user: CurrentUser,
+    session: Session = Depends(get_session),
+) -> Response:
+    job = _import_job_repository.get_by_id(
+        session,
+        job_id=job_id,
+        user_id=current_user.id,
+    )
+    if job is None:
+        raise HTTPException(status_code=404, detail="Import job not found")
+    if job.status in {"pending", "processing"}:
+        raise HTTPException(status_code=409, detail="Active import cannot be deleted")
+
+    file_storage_service = create_file_storage_service(settings)
+    await file_storage_service.delete_if_exists(job.storage_path)
+    _transaction_repository.delete_for_import_job(
+        session,
+        user_id=current_user.id,
+        import_job_id=job.id,
+    )
+    _import_job_repository.delete(session, job=job)
+
+    return Response(status_code=204)
 
 
 @import_jobs_router.get("/{job_id}/events")

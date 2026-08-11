@@ -416,6 +416,22 @@ class TransactionRepository:
 
         return int(result.rowcount or 0)
 
+    def delete_for_import_job(
+        self,
+        session: Session,
+        *,
+        user_id: str,
+        import_job_id: str,
+    ) -> int:
+        result = session.execute(
+            delete(TransactionSchema).where(
+                TransactionSchema.user_id == user_id,
+                TransactionSchema.import_job_id == import_job_id,
+            )
+        )
+
+        return int(result.rowcount or 0)
+
 
 def _prepare_transaction_patch(
     session: Session,

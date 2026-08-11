@@ -307,3 +307,11 @@ class ImportJobRepository:
                 error_message=error_message[:1000],
             )
         )
+
+    def delete(
+        self,
+        session: Session,
+        *,
+        job: ImportJobSchema,
+    ) -> None:
+        session.delete(job)
