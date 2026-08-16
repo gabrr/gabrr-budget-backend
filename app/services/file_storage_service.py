@@ -127,6 +127,9 @@ class GoogleCloudStorageService:
         return await asyncio.to_thread(self._blob(storage_path).download_as_bytes)
 
     async def delete_if_exists(self, storage_path: str) -> None:
+        if Path(storage_path).is_absolute():
+            return
+
         try:
             await asyncio.to_thread(self._blob(storage_path).delete)
         except NotFound:
