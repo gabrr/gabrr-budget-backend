@@ -1,5 +1,5 @@
 [project]
-name = "gabrr-budget-api"
+name = "acetate-api"
 version = "0.1.0"
 description = "Parse financial documents (CSV/PDF) into normalized transactions using AI agents"
 readme = "README.md"

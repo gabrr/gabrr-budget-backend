@@ -1,4 +1,4 @@
-# Gabrr Budget API
+# Acetate API
 
 Parse financial documents (CSV/PDF) into normalized transactions using AI agents. Upload a file, choose a model, and receive clean, structured transaction data.
 

@@ -1,4 +1,4 @@
-"""FastAPI application for Gabrr Budget transaction parsing."""
+"""FastAPI application for Acetate document parsing."""
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,7 +15,7 @@ configure_logging()
 def create_app(app_settings: Settings | None = None) -> FastAPI:
     resolved_settings = app_settings or settings
     app = FastAPI(
-        title="Gabrr Budget API",
+        title="Acetate API",
         description="Parse financial documents (CSV/PDF) into normalized transactions",
         version="0.1.0",
         docs_url=None if resolved_settings.app_env == "production" else "/docs",
