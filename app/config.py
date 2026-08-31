@@ -1,5 +1,6 @@
-from typing import Literal
 import os
+import re
+from typing import Literal
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -12,6 +13,7 @@ LOCAL_CORS_ORIGINS = ",".join(
         "http://127.0.0.1:3001",
     ]
 )
+GCS_BUCKET_NAME_PATTERN = re.compile(r"[a-z0-9][a-z0-9._-]{1,220}[a-z0-9]")
 
 
 def parse_cors_origins(raw_origins: str | None) -> list[str]:
@@ -21,6 +23,14 @@ def parse_cors_origins(raw_origins: str | None) -> list[str]:
             for origin in (raw_origins or LOCAL_CORS_ORIGINS).split(",")
             if origin.strip()
         )
+    )
+
+
+def parse_bucket_names(raw_bucket_names: str | None) -> frozenset[str]:
+    return frozenset(
+        bucket_name.strip()
+        for bucket_name in (raw_bucket_names or "").split(",")
+        if bucket_name.strip()
     )
 
 
@@ -42,6 +52,7 @@ class Settings(BaseSettings):
     # Import storage and asynchronous dispatch settings.
     file_storage_backend: Literal["local", "gcs"] = "local"
     gcs_bucket_name: str = ""
+    gcs_retired_bucket_names: str = ""
     cloud_tasks_mode: Literal["none", "google"] = "none"
     google_cloud_project: str = ""
     cloud_tasks_location: str = "us-east4"
@@ -66,6 +77,10 @@ class Settings(BaseSettings):
         return parse_cors_origins(os.getenv("CORS_ORIGINS", self.cors_origins))
 
     @property
+    def parsed_gcs_retired_bucket_names(self) -> frozenset[str]:
+        return parse_bucket_names(self.gcs_retired_bucket_names)
+
+    @property
     def max_file_upload_bytes(self) -> int:
         return self.max_file_upload_mb * 1024 * 1024
 
@@ -79,6 +94,19 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def require_production_configuration(self) -> "Settings":
+        retired_bucket_names = self.parsed_gcs_retired_bucket_names
+        invalid_bucket_names = sorted(
+            bucket_name
+            for bucket_name in retired_bucket_names
+            if GCS_BUCKET_NAME_PATTERN.fullmatch(bucket_name) is None
+        )
+        if invalid_bucket_names:
+            raise ValueError(
+                "GCS_RETIRED_BUCKET_NAMES must contain bare exact GCS bucket names"
+            )
+        if self.gcs_bucket_name.strip() in retired_bucket_names:
+            raise ValueError("Current GCS bucket cannot be marked as retired")
+
         if self.app_env != "production":
             return self
 

@@ -26,6 +26,17 @@ PDF_FILE_MAGIC_PREFIX = b"%PDF-"
 ALLOWED_PDF_CONTENT_TYPES = frozenset({"application/pdf", "application/x-pdf"})
 
 
+def _parse_gcs_uri(storage_path: str) -> tuple[str, str]:
+    if not storage_path.startswith("gs://"):
+        raise ValueError("Import object is not stored in an allowed bucket.")
+
+    bucket_name, separator, object_name = storage_path.removeprefix("gs://").partition("/")
+    if not bucket_name or not separator or not object_name:
+        raise ValueError("Import object is not stored in an allowed bucket.")
+
+    return bucket_name, object_name
+
+
 class FileSystemService:
     """Persist imports on the local filesystem for development."""
 
@@ -92,9 +103,11 @@ class GoogleCloudStorageService:
         self,
         bucket_name: str,
         *,
+        retired_bucket_names: frozenset[str] = frozenset(),
         client: storage.Client | None = None,
     ) -> None:
         self._bucket = (client or storage.Client()).bucket(bucket_name)
+        self._retired_bucket_names = retired_bucket_names
         self._validator = FileSystemService()
 
     async def save(
@@ -130,21 +143,28 @@ class GoogleCloudStorageService:
         if Path(storage_path).is_absolute():
             return
 
+        bucket_name, _ = _parse_gcs_uri(storage_path)
+        if bucket_name in self._retired_bucket_names:
+            return
+
         try:
             await asyncio.to_thread(self._blob(storage_path).delete)
         except NotFound:
             return
 
     def _blob(self, storage_path: str):
-        prefix = f"gs://{self._bucket.name}/"
-        if not storage_path.startswith(prefix):
+        bucket_name, object_name = _parse_gcs_uri(storage_path)
+        if bucket_name != self._bucket.name:
             raise ValueError("Import object is not stored in the configured bucket.")
-        return self._bucket.blob(storage_path.removeprefix(prefix))
+        return self._bucket.blob(object_name)
 
 
 def create_file_storage_service(
     settings: Settings,
 ) -> FileSystemService | GoogleCloudStorageService:
     if settings.file_storage_backend == "gcs":
-        return GoogleCloudStorageService(settings.gcs_bucket_name)
+        return GoogleCloudStorageService(
+            settings.gcs_bucket_name,
+            retired_bucket_names=settings.parsed_gcs_retired_bucket_names,
+        )
     return FileSystemService()
