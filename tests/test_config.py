@@ -34,6 +34,12 @@ def test_settings_use_all_local_cors_origins_by_default() -> None:
     ]
 
 
+def test_settings_use_acetate_queue_by_default() -> None:
+    app_settings = create_settings()
+
+    assert app_settings.cloud_tasks_queue == "acetate-imports"
+
+
 def test_settings_normalize_cors_origins() -> None:
     app_settings = create_settings(
         cors_origins=f" {VERCEL_ORIGIN},,http://localhost:3000,{VERCEL_ORIGIN} ",

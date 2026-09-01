@@ -56,7 +56,7 @@ class Settings(BaseSettings):
     cloud_tasks_mode: Literal["none", "google"] = "none"
     google_cloud_project: str = ""
     cloud_tasks_location: str = "us-east4"
-    cloud_tasks_queue: str = "gabrr-imports"
+    cloud_tasks_queue: str = "acetate-imports"
     cloud_tasks_max_attempts: int = Field(default=3, ge=1, le=100)
     cloud_tasks_invoker_email: str = ""
     backend_base_url: str = "http://127.0.0.1:8000"
